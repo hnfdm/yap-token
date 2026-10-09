@@ -1,0 +1,357 @@
+-- cUSDT: CIP-56 (Canton Token Standard) token.
+--
+-- Implements Holding + TransferFactory + TransferInstruction. Token metadata is
+-- off-ledger (see /registry in this repo). Allocation / settlement is NOT implemented yet.
+module CusdtToken where
+
+import DA.Foldable (forA_)
+import DA.TextMap qualified as TextMap
+import Splice.Api.Token.AllocationInstructionV1 qualified as AI
+import Splice.Api.Token.AllocationV1 qualified as A
+import Splice.Api.Token.HoldingV1 qualified as H
+import Splice.Api.Token.MetadataV1 qualified as M
+import Splice.Api.Token.TransferInstructionV1 qualified as TI
+
+cusdtSymbol : Text
+cusdtSymbol = "cUSDT"
+
+cusdtInstrumentId : Party -> H.InstrumentId
+cusdtInstrumentId admin = H.InstrumentId with admin = admin, id = cusdtSymbol
+
+-- Key under which the registry passes the receiver's preapproval cid in the choice context.
+preapprovalKey : Text
+preapprovalKey = "cusdt.mahawallet.xyz/transfer-preapproval"
+
+-- The wallet-side transaction parser identifies the sender of an allocation settlement from this
+-- well-known metadata key (see the token standard, "transaction history" metadata).
+spliceMetaPrefix : Text
+spliceMetaPrefix = "splice.lfdecentralizedtrust.org/"
+
+senderMeta : Party -> M.Metadata
+senderMeta sender = M.Metadata with
+  values = TextMap.fromList [(spliceMetaPrefix <> "sender", partyToText sender)]
+
+-- cUSDT has 6 decimals (as advertised by the registry); the ledger type has 10.
+assertPrecision : Text -> Decimal -> Update ()
+assertPrecision what x = assertMsg (what <> " has more than 6 decimals") (roundBankers 6 x == x)
+
+lockHolders : Optional H.Lock -> [Party]
+lockHolders None = []
+lockHolders (Some l) = l.holders
+
+completed : [ContractId H.Holding] -> [ContractId H.Holding] -> TI.TransferInstructionResult
+completed receiverCids changeCids = TI.TransferInstructionResult with
+  output = TI.TransferInstructionResult_Completed with receiverHoldingCids = receiverCids
+  senderChangeCids = changeCids
+  meta = M.emptyMetadata
+
+failed : [ContractId H.Holding] -> TI.TransferInstructionResult
+failed changeCids = TI.TransferInstructionResult with
+  output = TI.TransferInstructionResult_Failed
+  senderChangeCids = changeCids
+  meta = M.emptyMetadata
+
+-- Archive the given holdings and pay `amount` out of them; the rest comes back as change.
+-- Every input must be an unlocked cUSDT holding of `sender`. Used by transfers and allocations.
+spendInputs : Party -> Party -> Decimal -> [ContractId H.Holding] -> Update [ContractId H.Holding]
+spendInputs admin sender amount inputCidsI = do
+  let inputCids : [ContractId CusdtHolding] = map fromInterfaceContractId inputCidsI
+  inputs <- forA inputCids fetch
+  forA_ inputs $ \h -> do
+    assertMsg "input admin mismatch" (h.admin == admin)
+    assertMsg "input not owned by sender" (h.owner == sender)
+    assertMsg "input holding is locked" (h.lock == None)
+  let total = sum (map (\h -> h.amount) inputs)
+  assertMsg "insufficient funds in inputs" (total >= amount)
+  forA_ inputCids archive
+  let change = total - amount
+  if change > 0.0
+    then do
+      c <- create CusdtHolding with admin, owner = sender, amount = change, lock = None
+      pure [toInterfaceContractId c]
+    else pure []
+
+-- Unlock: archive a locked holding and give the same amount back to its owner, unlocked.
+releaseLocked : ContractId CusdtHolding -> Update (ContractId H.Holding)
+releaseLocked lockedCid = do
+  locked <- fetch lockedCid
+  archive lockedCid
+  h <- create CusdtHolding with
+    admin = locked.admin, owner = locked.owner, amount = locked.amount, lock = None
+  pure (toInterfaceContractId h)
+
+-- Holding ------------------------------------------------------------------
+
+template CusdtHolding
+  with
+    admin  : Party
+    owner  : Party
+    amount : Decimal
+    lock   : Optional H.Lock
+  where
+    signatory admin
+    observer owner :: lockHolders lock
+    ensure amount > 0.0
+
+    interface instance H.Holding for CusdtHolding where
+      view = H.HoldingView with
+        owner = owner
+        instrumentId = cusdtInstrumentId admin
+        amount = amount
+        lock = lock
+        meta = M.emptyMetadata
+
+    choice CusdtHolding_Split : (ContractId CusdtHolding, ContractId CusdtHolding)
+      with splitAmount : Decimal
+      controller owner
+      do
+        assertMsg "holding is locked" (lock == None)
+        assertMsg "splitAmount must be positive" (splitAmount > 0.0)
+        assertMsg "splitAmount must be less than amount" (splitAmount < amount)
+        assertPrecision "splitAmount" splitAmount
+        a <- create this with amount = splitAmount
+        b <- create this with amount = amount - splitAmount
+        pure (a, b)
+
+    -- Consolidate this holding with others (UTXO hygiene: keep holdings per user low).
+    choice CusdtHolding_Merge : ContractId CusdtHolding
+      with otherCids : [ContractId CusdtHolding]
+      controller owner
+      do
+        assertMsg "holding is locked" (lock == None)
+        others <- forA otherCids fetch
+        forA_ others $ \o -> do
+          assertMsg "owner mismatch" (o.owner == owner)
+          assertMsg "admin mismatch" (o.admin == admin)
+          assertMsg "other holding is locked" (o.lock == None)
+        forA_ otherCids archive
+        create this with amount = amount + sum (map (\o -> o.amount) others)
+
+    -- Owner destroys their own holding (e.g. the admin burning redeemed cUSDT).
+    -- The admin has NO power to burn other people's holdings.
+    choice CusdtHolding_Burn : ()
+      controller owner
+      do
+        assertMsg "holding is locked" (lock == None)
+        pure ()
+
+-- Issuer -------------------------------------------------------------------
+
+template CusdtAdmin
+  with
+    admin : Party
+  where
+    signatory admin
+
+    nonconsuming choice CusdtAdmin_Mint : ContractId CusdtHolding
+      with
+        recipient : Party
+        amount    : Decimal
+      controller admin
+      do
+        assertPrecision "mint amount" amount
+        create CusdtHolding with admin, owner = recipient, amount, lock = None
+
+    -- Lets `receiver` accept transfers directly (no per-transfer accept step).
+    nonconsuming choice CusdtAdmin_CreatePreapproval : ContractId CusdtTransferPreapproval
+      with receiver : Party
+      controller admin
+      do
+        create CusdtTransferPreapproval with admin, receiver
+
+-- Preapproval ----------------------------------------------------------------
+
+template CusdtTransferPreapproval
+  with
+    admin    : Party
+    receiver : Party
+  where
+    signatory admin
+    observer receiver
+
+    -- The receiver can opt out at any time (the admin can too, via Archive).
+    choice CusdtTransferPreapproval_Cancel : ()
+      controller receiver
+      do pure ()
+
+-- Transfer factory ---------------------------------------------------------
+
+template CusdtTransferFactory
+  with
+    admin : Party
+  where
+    signatory admin
+
+    interface instance TI.TransferFactory for CusdtTransferFactory where
+      view = TI.TransferFactoryView with admin = admin, meta = M.emptyMetadata
+
+      transferFactory_publicFetchImpl _self arg = do
+        assertMsg "expectedAdmin mismatch" (arg.expectedAdmin == admin)
+        pure (TI.TransferFactoryView with admin = admin, meta = M.emptyMetadata)
+
+      transferFactory_transferImpl _self arg = do
+        let t = arg.transfer
+        assertMsg "expectedAdmin mismatch" (arg.expectedAdmin == admin)
+        assertMsg "wrong instrument" (t.instrumentId == cusdtInstrumentId admin)
+        assertMsg "amount must be positive" (t.amount > 0.0)
+        assertPrecision "amount" t.amount
+        assertMsg "inputHoldingCids required" (not (null t.inputHoldingCids))
+        now <- getTime
+        assertMsg "requestedAt must be in the past" (t.requestedAt <= now)
+        assertMsg "executeBefore must be in the future" (t.executeBefore > now)
+
+        changeCids <- spendInputs admin t.sender t.amount t.inputHoldingCids
+
+        -- A preapproval cid in the choice context (put there by the registry) means "direct".
+        let preapprovalCid : Optional (ContractId CusdtTransferPreapproval) =
+              case TextMap.lookup preapprovalKey arg.extraArgs.context.values of
+                Some (M.AV_ContractId anyCid) -> Some (coerceContractId anyCid)
+                _ -> None
+
+        if t.sender == t.receiver
+          then do
+            rcv <- create CusdtHolding with admin, owner = t.receiver, amount = t.amount, lock = None
+            pure (completed [toInterfaceContractId rcv] changeCids)
+          else do
+            case preapprovalCid of
+              Some pcid -> do
+                p <- fetch pcid
+                assertMsg "preapproval admin mismatch" (p.admin == admin)
+                assertMsg "preapproval is for a different receiver" (p.receiver == t.receiver)
+                rcv <- create CusdtHolding with admin, owner = t.receiver, amount = t.amount, lock = None
+                pure (completed [toInterfaceContractId rcv] changeCids)
+              None -> do
+                ti <- create CusdtTransferInstruction with
+                  admin
+                  transfer = t with inputHoldingCids = []
+                pure TI.TransferInstructionResult with
+                  output = TI.TransferInstructionResult_Pending with
+                    transferInstructionCid = toInterfaceContractId ti
+                  senderChangeCids = changeCids
+                  meta = M.emptyMetadata
+
+-- Transfer instruction (receiver must accept) -------------------------------
+
+template CusdtTransferInstruction
+  with
+    admin    : Party
+    transfer : TI.Transfer
+  where
+    signatory admin, transfer.sender
+    observer transfer.receiver
+    ensure transfer.amount > 0.0
+
+    interface instance TI.TransferInstruction for CusdtTransferInstruction where
+      view = TI.TransferInstructionView with
+        originalInstructionCid = None
+        transfer = transfer
+        status = TI.TransferPendingReceiverAcceptance
+        meta = M.emptyMetadata
+
+      transferInstruction_acceptImpl _self _arg = do
+        now <- getTime
+        assertMsg "transfer expired" (now < transfer.executeBefore)
+        h <- create CusdtHolding with
+          admin, owner = transfer.receiver, amount = transfer.amount, lock = None
+        pure (completed [toInterfaceContractId h] [])
+
+      transferInstruction_rejectImpl _self _arg = do
+        h <- create CusdtHolding with
+          admin, owner = transfer.sender, amount = transfer.amount, lock = None
+        pure (failed [toInterfaceContractId h])
+
+      transferInstruction_withdrawImpl _self _arg = do
+        h <- create CusdtHolding with
+          admin, owner = transfer.sender, amount = transfer.amount, lock = None
+        pure (failed [toInterfaceContractId h])
+
+      -- No registry-internal workflow steps exist for cUSDT.
+      transferInstruction_updateImpl _self _arg =
+        abort "cUSDT transfer instructions have no registry-internal update steps"
+
+-- Allocation (atomic settlement) ----------------------------------------------
+
+-- Reserves `leg.amount` of the sender's cUSDT for a settlement run by `executor`.
+-- The funds sit in a locked CusdtHolding (not spendable) until executed, cancelled or withdrawn.
+template CusdtAllocationFactory
+  with
+    admin : Party
+  where
+    signatory admin
+
+    interface instance AI.AllocationFactory for CusdtAllocationFactory where
+      view = AI.AllocationFactoryView with admin = admin, meta = M.emptyMetadata
+
+      allocationFactory_publicFetchImpl _self arg = do
+        assertMsg "expectedAdmin mismatch" (arg.expectedAdmin == admin)
+        pure (AI.AllocationFactoryView with admin = admin, meta = M.emptyMetadata)
+
+      allocationFactory_allocateImpl _self arg = do
+        let spec = arg.allocation
+        let leg = spec.transferLeg
+        let settlement = spec.settlement
+        assertMsg "expectedAdmin mismatch" (arg.expectedAdmin == admin)
+        assertMsg "wrong instrument" (leg.instrumentId == cusdtInstrumentId admin)
+        assertMsg "amount must be positive" (leg.amount > 0.0)
+        assertPrecision "amount" leg.amount
+        assertMsg "inputHoldingCids required" (not (null arg.inputHoldingCids))
+        now <- getTime
+        assertMsg "requestedAt must be in the past" (arg.requestedAt <= now)
+        assertMsg "allocateBefore must be in the future" (settlement.allocateBefore > now)
+        assertMsg "settleBefore must be after allocateBefore" (settlement.settleBefore > settlement.allocateBefore)
+
+        changeCids <- spendInputs admin leg.sender leg.amount arg.inputHoldingCids
+        lockedCid <- create CusdtHolding with
+          admin
+          owner = leg.sender
+          amount = leg.amount
+          lock = Some (H.Lock with
+            holders = [settlement.executor]
+            expiresAt = Some settlement.settleBefore
+            expiresAfter = None
+            context = Some "cUSDT settlement allocation")
+        alloc <- create CusdtAllocation with admin, allocation = spec, lockedCid
+        pure AI.AllocationInstructionResult with
+          output = AI.AllocationInstructionResult_Completed with
+            allocationCid = toInterfaceContractId alloc
+          senderChangeCids = changeCids
+          meta = M.emptyMetadata
+
+template CusdtAllocation
+  with
+    admin      : Party
+    allocation : A.AllocationSpecification
+    lockedCid  : ContractId CusdtHolding
+  where
+    signatory admin, allocation.transferLeg.sender
+    observer allocation.settlement.executor, allocation.transferLeg.receiver
+
+    interface instance A.Allocation for CusdtAllocation where
+      view = A.AllocationView with
+        allocation = allocation
+        holdingCids = [toInterfaceContractId lockedCid]
+        meta = M.emptyMetadata
+
+      allocation_executeTransferImpl _self _arg = do
+        now <- getTime
+        assertMsg "settleBefore passed" (now < allocation.settlement.settleBefore)
+        locked <- fetch lockedCid
+        archive lockedCid
+        rcv <- create CusdtHolding with
+          admin, owner = allocation.transferLeg.receiver, amount = locked.amount, lock = None
+        pure A.Allocation_ExecuteTransferResult with
+          senderHoldingCids = []
+          receiverHoldingCids = [toInterfaceContractId rcv]
+          meta = senderMeta allocation.transferLeg.sender
+
+      allocation_cancelImpl _self _arg = do
+        h <- releaseLocked lockedCid
+        pure A.Allocation_CancelResult with
+          senderHoldingCids = [h]
+          meta = M.emptyMetadata
+
+      allocation_withdrawImpl _self _arg = do
+        h <- releaseLocked lockedCid
+        pure A.Allocation_WithdrawResult with
+          senderHoldingCids = [h]
+          meta = M.emptyMetadata

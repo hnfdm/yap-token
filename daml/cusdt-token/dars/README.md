@@ -1,0 +1,15 @@
+# Vendored Splice token-standard API DARs (v1.0.0)
+
+Build-time dependencies of `cusdt-token`. They are the unmodified Apache-2.0 artifacts from
+<https://github.com/hyperledger-labs/splice/tree/main/daml/dars> (copied 2026-10-09/10).
+Verify with `sha256sum`:
+
+```
+e2607ca3a1d735a82d3066b78132aa8f94b1886c99a5f14148742d252c7220a2 *splice-api-token-allocation-instruction-v1-1.0.0.dar
+c3f3b447142577ea4fa7d912ca11cd6821de7588e324e8877425932a02fccaa1 *splice-api-token-allocation-v1-1.0.0.dar
+ef75f8eb41a65810221784fdb78bb9dfac7cb22245aba14fa7cb7f69c34e0175 *splice-api-token-holding-v1-1.0.0.dar
+455eb160cb5abd4ae9918a6fbb9dad471f721adda39f0e5c76feef08d05637fc *splice-api-token-metadata-v1-1.0.0.dar
+e4c73aa7ae73fb2fc330b938ffb99f568792321640ba4b9472902aa8d742c994 *splice-api-token-transfer-instruction-v1-1.0.0.dar
+```
+
+The VPS scripts download the allocation DARs from the same location instead of shipping them.

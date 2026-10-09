@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Updates ONLY the registry on the testnet VPS (no Daml rebuild) and restarts the service.
+# Save as a file, then:  bash update-registry-on-vps.sh
+set -euo pipefail
+cat > /opt/cusdt-registry/server.mjs <<'EOF_JS'
+@@EMBED registry/src/server.mjs@@
+EOF_JS
+systemctl restart cusdt-registry
+sleep 3
+echo "health:"; curl -s localhost:8787/health; echo
+ADMIN=$(grep '^CUSDT_ADMIN_PARTY=' /etc/cusdt-registry.env | cut -d= -f2-)
+echo "alias path (Utility-style):"
+curl -s "localhost:8787/api/token-standard/v0/registrars/$ADMIN/registry/metadata/v1/info" | cut -c1-90; echo

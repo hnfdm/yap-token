@@ -1,0 +1,11 @@
+# secrets / local config
+.env*
+!.env.testnet.example
+
+# build + generated output
+node_modules/
+.daml/
+deploy/out/
+*.dar
+!daml/cusdt-token/dars/*.dar
+*.log

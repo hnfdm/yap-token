@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Installs the cUSDT registry as a systemd service on the testnet VPS.
+# Binds to 127.0.0.1:8787 only. Does NOT touch nginx or the validator; it writes an nginx
+# snippet for you to review. Save as a file, then:  bash install-registry-on-vps.sh
+set -euo pipefail
+[ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
+command -v node >/dev/null || { echo "node not found (need >= 18)"; exit 1; }
+node -e 'process.exit(+process.versions.node.split(".")[0] >= 18 ? 0 : 1)' || { echo "node >= 18 required"; exit 1; }
+
+D=/opt/cusdt-registry
+id cusdtreg >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin cusdtreg
+mkdir -p $D
+
+cat > $D/server.mjs <<'EOF_JS'
+@@EMBED registry/src/server.mjs@@
+EOF_JS
+chmod 644 $D/server.mjs
+
+# --- env file (secret is NOT filled in; you paste it) ---
+if [ ! -f /etc/cusdt-registry.env ]; then
+cat > /etc/cusdt-registry.env <<'EOF_ENV'
+HOST=127.0.0.1
+PORT=8787
+LEDGER_URL=https://ledger-testnet.mahawallet.xyz
+KC_TOKEN_URL=https://auth-testnet.mahawallet.xyz/realms/canton/protocol/openid-connect/token
+KC_CLIENT_ID=validator-app-backend
+KC_CLIENT_SECRET=PASTE_SECRET_HERE
+KC_SCOPE=daml_ledger_api
+CUSDT_ADMIN_PARTY=@@ADMIN@@
+CUSDT_PACKAGE_NAME=#cusdt-token
+# nginx on this box uses a self-signed cert; the service only talks to 127.0.0.1
+NODE_TLS_REJECT_UNAUTHORIZED=0
+EOF_ENV
+fi
+chmod 600 /etc/cusdt-registry.env
+
+# --- make the fake domains resolve to this box for the service (idempotent) ---
+grep -q "# cusdt-registry" /etc/hosts || echo "127.0.0.1 ledger-testnet.mahawallet.xyz auth-testnet.mahawallet.xyz # cusdt-registry" >> /etc/hosts
+
+cat > /etc/systemd/system/cusdt-registry.service <<'EOF_UNIT'
+[Unit]
+Description=cUSDT token registry (CIP-56 off-ledger API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cusdtreg
+EnvironmentFile=/etc/cusdt-registry.env
+ExecStart=/usr/bin/env node /opt/cusdt-registry/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF_UNIT
+
+cat > /root/cusdt-registry.nginx.conf <<'EOF_NGINX'
+# Review, adapt the two ssl_* paths to the ones your other testnet server blocks use, then:
+# put it in the nginx that owns :443, run "nginx -t", then reload.
+server {
+    listen 443 ssl;
+    server_name registry-testnet.mahawallet.xyz;
+    ssl_certificate     /PATH/TO/SAME/CERT.pem;
+    ssl_certificate_key /PATH/TO/SAME/KEY.pem;
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+}
+EOF_NGINX
+
+systemctl daemon-reload
+systemctl enable cusdt-registry >/dev/null 2>&1
+
+echo
+echo "== who owns :443 =="
+ss -ltnp 2>/dev/null | grep ':443 ' || echo "(nothing found)"
+echo "== existing ssl_certificate lines (native nginx) =="
+grep -rn "ssl_certificate" /etc/nginx 2>/dev/null | head || true
+echo
+if grep -q PASTE_SECRET_HERE /etc/cusdt-registry.env; then
+  echo "NEXT: nano /etc/cusdt-registry.env   (replace PASTE_SECRET_HERE)"
+  echo "THEN: systemctl start cusdt-registry && curl -s localhost:8787/health"
+else
+  systemctl restart cusdt-registry; sleep 2; curl -s localhost:8787/health; echo
+fi
+echo "Nginx snippet written to /root/cusdt-registry.nginx.conf (not installed)."

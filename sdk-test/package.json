@@ -1,0 +1,7 @@
+{
+  "name": "cusdt-sdk-test",
+  "private": true,
+  "type": "module",
+  "description": "Drives cUSDT through the official Canton Wallet SDK, i.e. as a standard wallet would.",
+  "dependencies": { "@canton-network/wallet-sdk": "1.5.3" }
+}

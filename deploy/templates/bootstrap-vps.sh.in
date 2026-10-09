@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# One-time VPS prep: JDK 17+ and dpm (Daml package manager) with the SDK this repo pins.
+# Touches nothing else. Afterwards use update-on-vps.sh to build the DAR / update the registry.
+set -euo pipefail
+
+echo "== JDK =="
+if ! command -v java >/dev/null || ! java -version 2>&1 | grep -qE 'version "(1[7-9]|[2-9][0-9])'; then
+  if command -v apt-get >/dev/null; then apt-get update -y && apt-get install -y openjdk-17-jdk-headless curl
+  elif command -v dnf >/dev/null; then dnf install -y java-17-openjdk-headless curl
+  else echo "install JDK 17+ manually, then re-run"; exit 1; fi
+fi
+java -version 2>&1 | head -1
+
+echo "== dpm =="
+export PATH="$HOME/.dpm/bin:$PATH"
+command -v dpm >/dev/null || curl -fsSL https://get.digitalasset.com/install/install.sh | sh
+(cd / && dpm --version)
+
+echo "== SDK @@SDK@@ =="
+(cd / && dpm install @@SDK@@)
+
+mkdir -p "$HOME/cusdt-token/daml/cusdt-token"
+echo "ready. Now run update-on-vps.sh"

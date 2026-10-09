@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const read = (p) => readFileSync(join(root, p), "utf8");
+const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n"); // LF only: the output runs under bash
 
 const yaml = read("daml/cusdt-token/daml.yaml");
 const version = yaml.match(/^version:\s*(\S+)/m)?.[1];

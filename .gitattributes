@@ -1,0 +1,8 @@
+* text=auto
+# Anything that ends up in a bash heredoc on the VPS must stay LF, also on Windows checkouts.
+*.sh        text eol=lf
+*.in        text eol=lf
+*.mjs       text eol=lf
+*.daml      text eol=lf
+*.yaml      text eol=lf
+*.dar       binary

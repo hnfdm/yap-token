@@ -16,7 +16,8 @@ export function loadEnv(file = ".env.testnet") {
   return env;
 }
 
-export const env = loadEnv();
+// CUSDT_ENV_FILE selects another node's settings, e.g. CUSDT_ENV_FILE=.env.mzf (the second testnet validator)
+export const env = loadEnv(process.env.CUSDT_ENV_FILE || ".env.testnet");
 export const need = (k) => { if (!env[k]) throw new Error(`missing env ${k}`); return env[k]; };
 export const PKG = env.CUSDT_PACKAGE_NAME || "#cusdt-token";
 

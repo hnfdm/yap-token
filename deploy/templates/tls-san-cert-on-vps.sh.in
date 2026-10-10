@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Replaces the testnet nginx certificate (CN=mahawallet-testnet, NO SAN, so no strict client can ever verify it)
+# with a self-signed one that has a SAN for ledger/auth/validator/registry-testnet.mahawallet.xyz + this host's IP.
+#  - same file names, so every server block (incl. the registry one) picks it up; clients using -k / INSECURE_TLS keep working
+#  - old files are backed up first; if `nginx -t` fails the old certificate is restored and nginx is NOT reloaded
+#  - strict clients must still TRUST this certificate: copy the printed .crt to them (NODE_EXTRA_CA_CERTS=...)
+# Save as a file, then:  bash tls-san-cert-on-vps.sh
+set -euo pipefail
+[ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
+command -v openssl >/dev/null || { echo "openssl not found"; exit 1; }
+D=/etc/nginx/ssl
+CRT=$D/mahawallet-testnet.crt
+KEY=$D/mahawallet-testnet.key
+[ -f "$CRT" ] && [ -f "$KEY" ] || { echo "expected $CRT and $KEY (see /etc/nginx/sites-available/mahawallet-testnet.conf)"; exit 1; }
+IP=${HOST_IP:-$(curl -s -m 8 ifconfig.me || true)}
+
+B=$D/backup-$(date +%Y%m%d-%H%M%S)
+mkdir -p "$B" && cp -p "$CRT" "$KEY" "$B"/
+echo "backed up the old certificate to $B"
+
+SAN="DNS:ledger-testnet.mahawallet.xyz,DNS:auth-testnet.mahawallet.xyz,DNS:validator-testnet.mahawallet.xyz,DNS:registry-testnet.mahawallet.xyz"
+[ -n "$IP" ] && SAN="$SAN,IP:$IP"
+openssl req -x509 -newkey rsa:2048 -nodes -days 825 -keyout "$KEY.new" -out "$CRT.new" \
+  -subj "/CN=mahawallet-testnet" -addext "subjectAltName=$SAN"
+chmod 600 "$KEY.new"; mv "$KEY.new" "$KEY"; mv "$CRT.new" "$CRT"
+
+if nginx -t; then
+  systemctl reload nginx
+  echo "nginx reloaded with the new certificate"
+else
+  echo "nginx -t FAILED: restoring the old certificate"; cp -p "$B"/mahawallet-testnet.crt "$CRT"; cp -p "$B"/mahawallet-testnet.key "$KEY"; nginx -t; exit 1
+fi
+echo
+openssl x509 -in "$CRT" -noout -subject -enddate -ext subjectAltName
+echo "SHA-256: $(openssl x509 -in "$CRT" -noout -fingerprint -sha256)"
+echo
+echo "Copy to clients that should verify TLS:   scp root@$(hostname -I | awk '{print $1}'):$CRT ."
+echo "Roll back:  cp -p $B/mahawallet-testnet.crt $CRT && cp -p $B/mahawallet-testnet.key $KEY && nginx -t && systemctl reload nginx"

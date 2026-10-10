@@ -18,6 +18,15 @@ export async function retry(fn, tries = 5) {
   }
 }
 
+/** The sequencer can refuse a send while the validator's traffic rate is too high (409 SEQUENCER_REQUEST_FAILED /
+ *  RequestRefused / SEQUENCER_BACKPRESSURE). That means the command was NOT sent, so retrying a WRITE is safe. */
+export async function retrySend(fn, tries = 8) {
+  for (let i = 1; ; i++) {
+    try { return await fn(); }
+    catch (e) { if (i >= tries || !/SEQUENCER_REQUEST_FAILED|SEQUENCER_BACKPRESSURE|RequestRefused/.test(String(e.message))) throw e; await new Promise((r) => setTimeout(r, 6000 * i)); }
+  }
+}
+
 /** Created events of holdings / pending transfer instructions / allocations at one consistent offset. */
 export const snapshot = (token, admin) => retry(async () => {
   const off = await ledgerEnd(token);

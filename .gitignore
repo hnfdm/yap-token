@@ -9,3 +9,6 @@ deploy/out/
 *.dar
 !daml/cusdt-token/dars/*.dar
 *.log
+
+# external-party test keys (private keys!)
+sdk-test/.keys/

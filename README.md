@@ -61,5 +61,6 @@ All run against the live testnet (parties `cusdt-alice` / `cusdt-bob`, balances 
 - Preapproval lookup scans all of the admin's preapprovals; the Ledger JSON API caps that at 200 elements. On failure the registry falls back to an offer instead of erroring.
 - The registry's TLS certificate on the testnet is self-signed.
 - The admin can mint without a cap, can destroy any user's balance (built-in `Archive`, see above), and there is no pause; `cusdt-admin` is a participant-hosted party. Fine for a testnet, not for mainnet.
+- Internal and external parties can transfer to each other freely (each step is signed by one kind), but ONE transaction cannot need both: an interactive (externally signed) submission requires an external signature from EVERY `actAs` party (verified: `sdk-test/mixed-settlement.mjs`). So `Allocation_ExecuteTransfer` works only when executor, sender and receiver are all internal or all external; an internal executor cannot settle for external users (use an external executor, or a delegation contract the parties sign; not built).
 - Lock expiry (`settleBefore`) is recorded, not enforced automatically: the sender can always withdraw.
 - Buy / sell against USDCx is **not** part of this repo.

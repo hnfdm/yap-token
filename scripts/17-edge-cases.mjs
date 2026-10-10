@@ -85,6 +85,18 @@ const mintTiny = async (to) => { await tpl([admin], T.ADMIN, adm.contractId, "Cu
   ok("FINDING: admin CAN still destroy alice's holding with Daml's built-in Archive (admin is a signatory)", archived, archived ? "succeeded: the issuer can burn any balance" : "rejected"); }
 await invariants("issuer powers");
 
+// Pending instructions and allocations have TWO signatories (admin + sender): the built-in Archive needs BOTH, so the
+// admin alone cannot destroy them (unlike a holding, whose only signatory is the admin).
+{ await transfer(ALICE, BOB, amt(1), [(await aliceFree())[0]])();
+  const inst = (await snap()).I.find((i) => i.createArgument.transfer.sender === ALICE && i.createArgument.transfer.receiver === BOB);
+  await mustFail("admin ALONE cannot Archive a pending transfer instruction (admin + sender are both signatories)", tpl([admin], T.INSTR, inst.contractId, "Archive"), /requires authorizers|AUTHORIZ/i);
+  await ti(ALICE, inst.contractId, "TransferInstruction_Withdraw")();
+  const r2 = ref(); await allocate(ALICE, BOB, amt(1), [(await aliceFree())[0]], r2)();
+  const al2 = await findAlloc(r2);
+  await mustFail("admin ALONE cannot Archive an allocation either", tpl([admin], T.ALLOC, al2.contractId, "Archive"), /requires authorizers|AUTHORIZ/i);
+  await al([ALICE], al2.contractId, "Allocation_Withdraw")(); }
+await invariants("instruction/allocation archive checks");
+
 // redemption path (the building block of a sell/redeem service): user -> admin, admin accepts, admin burns its own holding
 console.log("-- redemption path");
 { const before = supply(await snap());

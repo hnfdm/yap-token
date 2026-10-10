@@ -5,7 +5,7 @@ import { readFileSync, appendFileSync } from "node:fs";
 import { getToken, ledger, acs, need, env, PKG } from "./lib.mjs";
 
 const HINT = "cusdt-mzf-carol";
-const DAR = process.env.DAR ?? "daml/cusdt-token/.daml/dist/cusdt-token-0.3.1.dar";
+const DAR = process.env.DAR ?? "daml/cusdt-token/.daml/dist/cusdt-token-0.4.1.dar";
 const token = await getToken();
 console.log("participant:", (await ledger(token, "/v2/version")).version);
 

@@ -128,7 +128,7 @@ template CusdtHolding
         create this with amount = amount + sum (map (\o -> o.amount) others)
 
     -- Owner destroys their own holding (e.g. the admin burning redeemed cUSDT).
-    -- The admin cannot use THIS choice on other people's holdings (as a signatory it can still use Daml's built-in Archive).
+    -- The admin cannot use THIS choice on other people's holdings (as the only signatory of a holding it can still use Daml's built-in Archive on it).
     choice CusdtHolding_Burn : ()
       controller owner
       do
@@ -355,3 +355,88 @@ template CusdtAllocation
         pure A.Allocation_WithdrawResult with
           senderHoldingCids = [h]
           meta = M.emptyMetadata
+
+-- Settlement authority (cross-participant / cross-kind settlement) ---------------------------------------
+--
+-- Allocation_ExecuteTransfer needs the joint authority of executor + sender + receiver, and ONE node can only
+-- submit for the parties it hosts. The token standard's answer: sender and receiver delegate to the executor
+-- through a contract THEY sign. In the body of a choice, the authority of the contract's signatories (sender,
+-- receiver) is available next to the controller (executor), so the executor alone can settle, from its own node.
+--
+-- The executor can only settle (or cancel) allocations whose executor / sender / receiver / settlementRef
+-- match, before `expiresAt`; the leg (who gets what) is fixed in the allocation. Sender or receiver revoke
+-- the delegation any time with CusdtSettlement_RevokeBySender / _RevokeByReceiver (the built-in Archive would need both).
+
+template CusdtSettlementProposal
+  with
+    executor        : Party
+    sender          : Party
+    receiver        : Party
+    settlementRefId : Text
+    expiresAt       : Time
+  where
+    signatory sender
+    observer receiver, executor
+    ensure sender /= receiver
+
+    choice CusdtSettlementProposal_Accept : ContractId CusdtSettlementAuthority
+      controller receiver
+      do
+        now <- getTime
+        assertMsg "proposal expired" (now < expiresAt)
+        create CusdtSettlementAuthority with executor, sender, receiver, settlementRefId, expiresAt
+
+    choice CusdtSettlementProposal_Reject : ()
+      controller receiver
+      do pure ()
+
+template CusdtSettlementAuthority
+  with
+    executor        : Party
+    sender          : Party
+    receiver        : Party
+    settlementRefId : Text
+    expiresAt       : Time
+  where
+    signatory sender, receiver
+    observer executor
+
+    -- Either party can revoke ALONE. Daml's built-in Archive needs ALL signatories at once, which is impossible when
+    -- sender and receiver are hosted on different nodes (found in test 22: a 0.4.0 authority could not be revoked).
+    choice CusdtSettlement_RevokeBySender : ()
+      controller sender
+      do pure ()
+
+    choice CusdtSettlement_RevokeByReceiver : ()
+      controller receiver
+      do pure ()
+
+    nonconsuming choice CusdtSettlement_Execute : A.Allocation_ExecuteTransferResult
+      with
+        allocationCid : ContractId A.Allocation
+        extraArgs     : M.ExtraArgs
+      controller executor
+      do
+        checkDelegation this allocationCid
+        exercise allocationCid (A.Allocation_ExecuteTransfer with extraArgs)
+
+    nonconsuming choice CusdtSettlement_Cancel : A.Allocation_CancelResult
+      with
+        allocationCid : ContractId A.Allocation
+        extraArgs     : M.ExtraArgs
+      controller executor
+      do
+        checkDelegation this allocationCid
+        exercise allocationCid (A.Allocation_Cancel with extraArgs)
+
+-- The allocation must be exactly the one this delegation was granted for.
+checkDelegation : CusdtSettlementAuthority -> ContractId A.Allocation -> Update ()
+checkDelegation d allocationCid = do
+  now <- getTime
+  assertMsg "settlement authority expired" (now < d.expiresAt)
+  alloc <- fetch allocationCid
+  let v = view alloc
+  assertMsg "allocation has a different executor" (v.allocation.settlement.executor == d.executor)
+  assertMsg "allocation has a different sender" (v.allocation.transferLeg.sender == d.sender)
+  assertMsg "allocation has a different receiver" (v.allocation.transferLeg.receiver == d.receiver)
+  assertMsg "allocation belongs to a different settlement" (v.allocation.settlement.settlementRef.id == d.settlementRefId)

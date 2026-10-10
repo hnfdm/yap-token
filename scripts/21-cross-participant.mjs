@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { loadEnv } from "./lib.mjs";
 import { T, snapshot, supply, checkInvariants, retry, retrySend } from "./invariants.mjs";
 import { makeOps, amt, IF } from "./ops.mjs";
+import { node } from "./nodes.mjs";
 
 const OURS = loadEnv(".env.testnet"), MZF = loadEnv(".env.mzf");
 if (OURS.INSECURE_TLS === "1" || MZF.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -15,31 +16,6 @@ const PKG = "#cusdt-token";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 
-/** a tiny client for ONE participant (auto-refreshing token) */
-function node(cfg, name) {
-  let tok = null;
-  const token = async () => {
-    if (tok && tok.exp > Date.now() / 1000 + 60) return tok.v;
-    const r = await fetch(cfg.KC_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: "client_credentials", client_id: cfg.KC_CLIENT_ID, client_secret: cfg.KC_CLIENT_SECRET, scope: cfg.KC_SCOPE || "daml_ledger_api" }) });
-    if (!r.ok) throw new Error(`${name} token ${r.status}`);
-    const j = await r.json(); tok = { v: j.access_token, exp: Date.now() / 1000 + (j.expires_in ?? 300) }; return tok.v;
-  };
-  const ledger = async (path, { method = "GET", json } = {}) => {
-    const r = await fetch(`${cfg.LEDGER_URL}${path}`, { method, headers: { Authorization: `Bearer ${await token()}`, ...(json ? { "Content-Type": "application/json" } : {}) }, body: json ? JSON.stringify(json) : undefined });
-    const text = await r.text(); if (!r.ok) throw new Error(`${name} ${method} ${path} -> ${r.status}: ${text.slice(0, 500)}`); return text ? JSON.parse(text) : {};
-  };
-  const acs = (party, tpl, blob = false) => retry(async () => {
-    const off = (await ledger("/v2/state/ledger-end")).offset;
-    const r = await ledger("/v2/state/active-contracts", { method: "POST", json: { activeAtOffset: off, eventFormat: { filtersByParty: { [party]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId: tpl, includeCreatedEventBlob: blob } } } }] } }, verbose: true } } });
-    return (Array.isArray(r) ? r : (r.activeContracts ?? [])).map((it) => ({ ...it.contractEntry?.JsActiveContract?.createdEvent, synchronizerId: it.contractEntry?.JsActiveContract?.synchronizerId })).filter((c) => c.contractId);
-  });
-  let n = 0;
-  const tx = (actAs, commands, disclosed = []) => retrySend(() => ledger("/v2/commands/submit-and-wait-for-transaction", { method: "POST", json: {
-    commands: { commands, commandId: `xp-${name}-${Date.now()}-${n++}`, actAs, readAs: actAs, disclosedContracts: disclosed },
-    transactionFormat: { transactionShape: "TRANSACTION_SHAPE_LEDGER_EFFECTS", eventFormat: { filtersByParty: Object.fromEntries(actAs.map((p) => [p, {}])), verbose: true } } } }));
-  return { token, ledger, acs, tx };
-}
 const ours = node(OURS, "ours"), mzf = node(MZF, "mzf");
 const opsNow = async () => makeOps({ token: await ours.token(), admin, registry: REGISTRY });
 const sumH = (hs) => hs.reduce((s, h) => s + Math.round(Number(h.createArgument.amount) * 1e6), 0);

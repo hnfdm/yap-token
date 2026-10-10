@@ -14,7 +14,7 @@ A from-scratch implementation of the Canton Token Standard (CIP-0056 v1): the Da
 | Token metadata / registry APIs | `registry/` (off-ledger HTTP, see below) |
 | Not implemented | `AllocationInstruction` (allocations are created directly), BurnMint, Token Standard V2 |
 
-Rules worth knowing: transfers archive the given `inputHoldingCids` and return change; `executeBefore` is honored; amounts are limited to **6 decimals** on every entry point; the custom `Burn` is owner-only (the admin cannot use it on other people's holdings, **but as a signatory the admin can still destroy any holding, pending instruction or allocation with Daml's built-in `Archive`**: verified in `scripts/17-edge-cases.mjs`, an issuer power, not a user-side guarantee); `CusdtHolding_Merge` consolidates holdings.
+Rules worth knowing: transfers archive the given `inputHoldingCids` and return change; `executeBefore` is honored; amounts are limited to **6 decimals** on every entry point; the custom `Burn` is owner-only (the admin cannot use it on other people's holdings, **but as the only signatory of a holding the admin can still destroy ANY holding, locked ones included, with Daml's built-in `Archive`**: verified in `scripts/17-edge-cases.mjs`, an issuer power, not a user-side guarantee. Pending instructions and allocations have two signatories (admin + sender), so the admin alone cannot archive those, also verified); `CusdtHolding_Merge` consolidates holdings.
 
 ## Layout
 
@@ -56,11 +56,14 @@ All run against the live testnet (parties `cusdt-alice` / `cusdt-bob`, balances 
 | `scripts/13-precision-tests.mjs` | 6-decimal limit, smallest unit |
 | `sdk-test/flows.mjs` | The same flows built by the official Wallet SDK (`npm install --ignore-scripts` first) |
 
+## Cross-participant settlement (settlement authority, v0.4.1)
+Sender and receiver can delegate settlement to the executor with a contract THEY sign: the sender creates a `CusdtSettlementProposal`, the receiver accepts it on their own node, which creates a `CusdtSettlementAuthority` (signatories sender + receiver, observer executor). The executor then runs `CusdtSettlement_Execute` (or `_Cancel`) alone, from its own node, and only for allocations whose executor / sender / receiver / settlement reference match, before the authority expires. Funds still go where the allocation says. Either party can revoke it alone with `CusdtSettlement_RevokeBySender` / `_RevokeByReceiver` (the built-in `Archive` would need both signatories, impossible across nodes). Tested between two participants: `scripts/22-delegated-settlement.mjs`.
+
 ## Known limits
 
 - Preapproval lookup scans all of the admin's preapprovals; the Ledger JSON API caps that at 200 elements. On failure the registry falls back to an offer instead of erroring.
 - The registry's TLS certificate on the testnet is self-signed.
-- The admin can mint without a cap, can destroy any user's balance (built-in `Archive`, see above), and there is no pause; `cusdt-admin` is a participant-hosted party. Fine for a testnet, not for mainnet.
-- Internal and external parties can transfer to each other freely (each step is signed by one kind), but ONE transaction cannot need both: an interactive (externally signed) submission requires an external signature from EVERY `actAs` party (verified: `sdk-test/mixed-settlement.mjs`). So `Allocation_ExecuteTransfer` works only when executor, sender and receiver are all internal or all external; an internal executor cannot settle for external users (use an external executor, or a delegation contract the parties sign; not built).
+- The admin can mint without a cap, can destroy any user's holding (built-in `Archive`, see above), and there is no pause; `cusdt-admin` is a participant-hosted party. Fine for a testnet, not for mainnet.
+- Internal and external parties can transfer to each other freely (each step is signed by one kind), but ONE transaction cannot need both: an interactive (externally signed) submission requires an external signature from EVERY `actAs` party (verified: `sdk-test/mixed-settlement.mjs`). So `Allocation_ExecuteTransfer` works only when executor, sender and receiver are all internal or all external; an internal executor cannot settle for external users, and one node cannot submit when a required party is hosted on another. Use an external executor, or the settlement authority below.
 - Lock expiry (`settleBefore`) is recorded, not enforced automatically: the sender can always withdraw.
 - Buy / sell against USDCx is **not** part of this repo.

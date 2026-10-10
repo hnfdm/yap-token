@@ -71,9 +71,11 @@ export async function acs(token, party, templateId, { blob = false } = {}) {
   }).filter((c) => c.contractId);
 }
 
-export function submit(token, { actAs, readAs = actAs, commands, disclosedContracts = [], label }) {
+let _cmdSeq = 0;
+/** commandId is unique per call (concurrent submissions in the same millisecond must not collide); pass `commandId` to test deduplication. */
+export function submit(token, { actAs, readAs = actAs, commands, disclosedContracts = [], label, commandId }) {
   return ledger(token, "/v2/commands/submit-and-wait", {
     method: "POST",
-    json: { commands, actAs, readAs, disclosedContracts, commandId: `cusdt-${label}-${Date.now()}` },
+    json: { commands, actAs, readAs, disclosedContracts, commandId: commandId ?? `cusdt-${label}-${Date.now()}-${++_cmdSeq}-${Math.random().toString(36).slice(2, 8)}` },
   });
 }

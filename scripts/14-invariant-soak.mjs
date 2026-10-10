@@ -8,6 +8,7 @@
 //   I5  every holding is > 0 and has <= 6 decimals
 // "Must-fail" operations (overspend, wrong party, 7 decimals) must be rejected and change nothing.
 import { getToken, ledger, ledgerEnd, submit, need, PKG } from "./lib.mjs";
+import { mu, sumMu, retry, isNet, snapshot, checkInvariants } from "./invariants.mjs";
 
 const OPS = Number(process.argv[2] ?? 60);
 const SEED = Number(process.argv[3] ?? (Date.now() % 1e9));
@@ -25,7 +26,6 @@ const IF_AF = "#splice-api-token-allocation-instruction-v1:Splice.Api.Token.Allo
 const IF_A = "#splice-api-token-allocation-v1:Splice.Api.Token.AllocationV1:Allocation";
 const extra = { extraArgs: { context: { values: {} }, meta: { values: {} } } };
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
-const mu = (s) => Math.round(Number(s) * 1e6);                 // micro-units: exact integer arithmetic
 const amt = (m) => (m / 1e6).toFixed(10);
 
 // seeded PRNG (mulberry32) so a failing run can be replayed
@@ -35,49 +35,12 @@ const ri = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
 const pick = (a) => a[Math.floor(rnd() * a.length)];
 const shuffle = (a) => { const b = [...a]; for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; };
 
-// ---- state -----------------------------------------------------------------------------------
-// Reads are safe to retry; writes are not (a timed-out write may still have committed), the invariant check covers those.
-async function retry(fn, tries = 5) {
-  for (let i = 1; ; i++) {
-    try { return await fn(); }
-    catch (e) { if (i >= tries || !isNet(String(e.message) + String(e.cause?.code ?? ""))) throw e; await new Promise((r) => setTimeout(r, 3000 * i)); }
-  }
-}
-const snap = () => retry(snapOnce);
-async function snapOnce() {
-  const off = await ledgerEnd(token);
-  const q = async (tpl) => {
-    const r = await ledger(token, "/v2/state/active-contracts", { method: "POST", json: { activeAtOffset: off,
-      eventFormat: { filtersByParty: { [admin]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId: tpl, includeCreatedEventBlob: false } } } }] } }, verbose: true } } });
-    return (Array.isArray(r) ? r : (r.activeContracts ?? [])).map((it) => it.contractEntry?.JsActiveContract?.createdEvent).filter(Boolean);
-  };
-  const [H, I, A] = await Promise.all([q(HOLDING), q(INSTR), q(ALLOC)]);
-  return { H, I, A };
-}
+// ---- state (shared checker: scripts/invariants.mjs) -----------------------------------------
+const snap = () => snapshot(token, admin);
 const free = (S, p) => S.H.filter((h) => h.createArgument.owner === p && h.createArgument.lock == null);
-const sumMu = (cs, f = (c) => c.createArgument.amount) => cs.reduce((s, c) => s + mu(f(c)), 0);
 const internal = (...ps) => ps.every((p) => p === ALICE || p === BOB);
-
 let expected = 0;
-function violations(S) {
-  const v = [];
-  const sumH = sumMu(S.H), sumI = sumMu(S.I, (c) => c.createArgument.transfer.amount);
-  if (sumH + sumI !== expected) v.push(`I1 supply: holdings ${sumH} + pending ${sumI} = ${sumH + sumI} != expected ${expected} (micro)`);
-  const locked = S.H.filter((h) => h.createArgument.lock != null);
-  const allocSum = sumMu(S.A, (c) => c.createArgument.allocation.transferLeg.amount);
-  if (sumMu(locked) !== allocSum) v.push(`I2 locked ${sumMu(locked)} != allocations ${allocSum}`);
-  const byCid = new Map(S.H.map((h) => [h.contractId, h]));
-  const refs = new Map();
-  for (const a of S.A) {
-    const h = byCid.get(a.createArgument.lockedCid);
-    if (!h) v.push(`I3 allocation ${a.contractId.slice(0, 10)} has no holding`);
-    else if (h.createArgument.lock == null || mu(h.createArgument.amount) !== mu(a.createArgument.allocation.transferLeg.amount)) v.push(`I3 allocation ${a.contractId.slice(0, 10)} holding mismatch`);
-    refs.set(a.createArgument.lockedCid, (refs.get(a.createArgument.lockedCid) ?? 0) + 1);
-  }
-  for (const h of locked) if ((refs.get(h.contractId) ?? 0) !== 1) v.push(`I4 locked holding ${h.contractId.slice(0, 10)} referenced ${refs.get(h.contractId) ?? 0}x`);
-  for (const h of S.H) { const x = Number(h.createArgument.amount); if (!(x > 0) || Math.abs(x * 1e6 - Math.round(x * 1e6)) > 1e-6) v.push(`I5 bad amount ${h.createArgument.amount}`); }
-  return v;
-}
+const violations = (S) => checkInvariants(S, expected);
 
 // ---- building blocks -------------------------------------------------------------------------
 const post = (path, body) => retry(async () => { const r = await fetch(`${registry}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); if (!r.ok) throw new Error(`registry ${r.status}`); return r.json(); });
@@ -148,7 +111,6 @@ const bag = Object.entries(WEIGHTS).flatMap(([k, w]) => Array(w).fill(k));
 // ---- run -------------------------------------------------------------------------------------
 const stats = {}; const bump = (k, f) => { (stats[k] ??= { ok: 0, fail: 0, skip: 0, mustFailOk: 0 })[f]++; };
 const log = []; let unexpected = 0;
-const isNet = (m) => /fetch failed|ECONN|ETIMEDOUT|UND_ERR|socket|timeout|502|503|504/i.test(m);
 
 let S = await snap();
 expected = sumMu(S.H) + sumMu(S.I, (c) => c.createArgument.transfer.amount);

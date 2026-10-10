@@ -128,7 +128,7 @@ template CusdtHolding
         create this with amount = amount + sum (map (\o -> o.amount) others)
 
     -- Owner destroys their own holding (e.g. the admin burning redeemed cUSDT).
-    -- The admin has NO power to burn other people's holdings.
+    -- The admin cannot use THIS choice on other people's holdings (as a signatory it can still use Daml's built-in Archive).
     choice CusdtHolding_Burn : ()
       controller owner
       do

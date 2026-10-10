@@ -14,7 +14,7 @@ A from-scratch implementation of the Canton Token Standard (CIP-0056 v1): the Da
 | Token metadata / registry APIs | `registry/` (off-ledger HTTP, see below) |
 | Not implemented | `AllocationInstruction` (allocations are created directly), BurnMint, Token Standard V2 |
 
-Rules worth knowing: transfers archive the given `inputHoldingCids` and return change; `executeBefore` is honored; amounts are limited to **6 decimals** on every entry point; `Burn` is owner-only (the admin cannot burn other people's holdings); `CusdtHolding_Merge` consolidates holdings.
+Rules worth knowing: transfers archive the given `inputHoldingCids` and return change; `executeBefore` is honored; amounts are limited to **6 decimals** on every entry point; the custom `Burn` is owner-only (the admin cannot use it on other people's holdings, **but as a signatory the admin can still destroy any holding, pending instruction or allocation with Daml's built-in `Archive`**: verified in `scripts/17-edge-cases.mjs`, an issuer power, not a user-side guarantee); `CusdtHolding_Merge` consolidates holdings.
 
 ## Layout
 
@@ -60,6 +60,6 @@ All run against the live testnet (parties `cusdt-alice` / `cusdt-bob`, balances 
 
 - Preapproval lookup scans all of the admin's preapprovals; the Ledger JSON API caps that at 200 elements. On failure the registry falls back to an offer instead of erroring.
 - The registry's TLS certificate on the testnet is self-signed.
-- The admin can mint without a cap and there is no pause; `cusdt-admin` is a participant-hosted party. Fine for a testnet, not for mainnet.
+- The admin can mint without a cap, can destroy any user's balance (built-in `Archive`, see above), and there is no pause; `cusdt-admin` is a participant-hosted party. Fine for a testnet, not for mainnet.
 - Lock expiry (`settleBefore`) is recorded, not enforced automatically: the sender can always withdraw.
 - Buy / sell against USDCx is **not** part of this repo.

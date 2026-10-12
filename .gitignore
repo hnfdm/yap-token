@@ -12,3 +12,4 @@ deploy/out/
 
 # external-party test keys (private keys!)
 sdk-test/.keys/
+sdk-matrix-*/

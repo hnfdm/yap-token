@@ -1,0 +1,508 @@
+-- Unit tests for the cUSDT contracts (Daml Script, run with `dpm test`). No network, no traffic.
+-- They cover what is awkward on a live testnet: time (expiry), exact authorisation, lock rules, delegation.
+module CusdtTokenTest where
+
+import Daml.Script
+import DA.Time
+import DA.Date
+import DA.TextMap qualified as TextMap
+import CusdtToken
+import Splice.Api.Token.AllocationInstructionV1 qualified as AI
+import Splice.Api.Token.AllocationV1 qualified as A
+import Splice.Api.Token.MetadataV1 qualified as M
+import Splice.Api.Token.TransferInstructionV1 qualified as TI
+
+-- ---------------------------------------------------------------------------------------------------------
+-- fixtures
+
+data World = World with
+  admin : Party
+  alice : Party
+  bob   : Party
+  tf    : ContractId CusdtTransferFactory
+  af    : ContractId CusdtAllocationFactory
+  tfD   : Disclosure
+  afD   : Disclosure
+
+noExtra : M.ExtraArgs
+noExtra = M.ExtraArgs with
+  context = M.ChoiceContext with values = TextMap.empty
+  meta = M.emptyMetadata
+
+setup : Script World
+setup = do
+  admin <- allocateParty "admin"
+  alice <- allocateParty "alice"
+  bob <- allocateParty "bob"
+  setTime (time (date 2026 Oct 12) 9 0 0)
+  tf <- submit admin do createCmd CusdtTransferFactory with admin
+  af <- submit admin do createCmd CusdtAllocationFactory with admin
+  Some tfD <- queryDisclosure admin tf
+  Some afD <- queryDisclosure admin af
+  pure World with ..
+
+mint : World -> Party -> Decimal -> Script (ContractId CusdtHolding)
+mint w owner amount = submit w.admin do
+  createCmd CusdtHolding with admin = w.admin, owner, amount, lock = None
+
+-- (cid, contract) of the UNLOCKED holdings of a party / of everything (the admin is signatory of all)
+freeOf : World -> Party -> Script [(ContractId CusdtHolding, CusdtHolding)]
+freeOf w p = do
+  hs <- query @CusdtHolding w.admin
+  pure [ (c, h) | (c, h) <- hs, h.owner == p, h.lock == None ]
+
+lockedOf : World -> Party -> Script [(ContractId CusdtHolding, CusdtHolding)]
+lockedOf w p = do
+  hs <- query @CusdtHolding w.admin
+  pure [ (c, h) | (c, h) <- hs, h.owner == p, h.lock /= None ]
+
+balance : World -> Party -> Script Decimal
+balance w p = do
+  hs <- freeOf w p
+  pure (sum [ h.amount | (_, h) <- hs ])
+
+supplyAll : World -> Script Decimal
+supplyAll w = do
+  hs <- query @CusdtHolding w.admin
+  is <- query @CusdtTransferInstruction w.admin
+  pure (sum [ h.amount | (_, h) <- hs ] + sum [ i.transfer.amount | (_, i) <- is ])
+
+-- assert that a Script Decimal equals an expected value
+expectBalance : Script Decimal -> Decimal -> Text -> Script ()
+expectBalance s expected msg = do
+  v <- s
+  assertMsg (msg <> " (expected " <> show expected <> ", got " <> show v <> ")") (v == expected)
+
+transferCmd : World -> Time -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Commands TI.TransferInstructionResult
+transferCmd w now s r a ins =
+  exerciseCmd (toInterfaceContractId @TI.TransferFactory w.tf) TI.TransferFactory_Transfer with
+    expectedAdmin = w.admin
+    transfer = TI.Transfer with
+      sender = s
+      receiver = r
+      amount = a
+      instrumentId = cusdtInstrumentId w.admin
+      requestedAt = addRelTime now (seconds (-30))
+      executeBefore = addRelTime now (hours 1)
+      inputHoldingCids = map toInterfaceContractId ins
+      meta = M.emptyMetadata
+    extraArgs = noExtra
+
+sendOffer : World -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Script ()
+sendOffer w s r a ins = do
+  now <- getTime
+  _ <- submit (actAs s <> disclose w.tfD) (transferCmd w now s r a ins)
+  pure ()
+
+pendingOffers : World -> Script [(ContractId CusdtTransferInstruction, CusdtTransferInstruction)]
+pendingOffers w = query @CusdtTransferInstruction w.admin
+
+acceptOffer : ContractId CusdtTransferInstruction -> Commands TI.TransferInstructionResult
+acceptOffer c = exerciseCmd (toInterfaceContractId @TI.TransferInstruction c) TI.TransferInstruction_Accept with extraArgs = noExtra
+
+withdrawOffer : ContractId CusdtTransferInstruction -> Commands TI.TransferInstructionResult
+withdrawOffer c = exerciseCmd (toInterfaceContractId @TI.TransferInstruction c) TI.TransferInstruction_Withdraw with extraArgs = noExtra
+
+rejectOffer : ContractId CusdtTransferInstruction -> Commands TI.TransferInstructionResult
+rejectOffer c = exerciseCmd (toInterfaceContractId @TI.TransferInstruction c) TI.TransferInstruction_Reject with extraArgs = noExtra
+
+allocateCmd : World -> Time -> Party -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Commands AI.AllocationInstructionResult
+allocateCmd w now s r executor ref a ins =
+  exerciseCmd (toInterfaceContractId @AI.AllocationFactory w.af) AI.AllocationFactory_Allocate with
+    expectedAdmin = w.admin
+    allocation = A.AllocationSpecification with
+      settlement = A.SettlementInfo with
+        executor
+        settlementRef = A.Reference with id = ref, cid = None
+        requestedAt = addRelTime now (seconds (-30))
+        allocateBefore = addRelTime now (hours 1)
+        settleBefore = addRelTime now (hours 2)
+        meta = M.emptyMetadata
+      transferLegId = "leg-1"
+      transferLeg = A.TransferLeg with
+        sender = s
+        receiver = r
+        amount = a
+        instrumentId = cusdtInstrumentId w.admin
+        meta = M.emptyMetadata
+    requestedAt = addRelTime now (seconds (-30))
+    inputHoldingCids = map toInterfaceContractId ins
+    extraArgs = noExtra
+
+-- creates an allocation and returns the NEWEST one (tests that create several take the last)
+doAllocate : World -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Script (ContractId CusdtAllocation)
+doAllocate w s r ref a ins = do
+  now <- getTime
+  _ <- submit (actAs s <> disclose w.afD) (allocateCmd w now s r w.admin ref a ins)
+  allocs <- query @CusdtAllocation w.admin
+  case [ c | (c, x) <- allocs, x.allocation.settlement.settlementRef.id == ref ] of
+    (c :: _) -> pure c
+    [] -> abort ("allocation not found for " <> ref)
+
+executeAlloc : ContractId CusdtAllocation -> Commands A.Allocation_ExecuteTransferResult
+executeAlloc c = exerciseCmd (toInterfaceContractId @A.Allocation c) A.Allocation_ExecuteTransfer with extraArgs = noExtra
+
+withdrawAlloc : ContractId CusdtAllocation -> Commands A.Allocation_WithdrawResult
+withdrawAlloc c = exerciseCmd (toInterfaceContractId @A.Allocation c) A.Allocation_Withdraw with extraArgs = noExtra
+
+execViaAuthority : ContractId CusdtSettlementAuthority -> ContractId CusdtAllocation -> Commands A.Allocation_ExecuteTransferResult
+execViaAuthority auth alloc = exerciseCmd auth CusdtSettlement_Execute with
+  allocationCid = toInterfaceContractId @A.Allocation alloc
+  extraArgs = noExtra
+
+cancelViaAuthority : ContractId CusdtSettlementAuthority -> ContractId CusdtAllocation -> Commands A.Allocation_CancelResult
+cancelViaAuthority auth alloc = exerciseCmd auth CusdtSettlement_Cancel with
+  allocationCid = toInterfaceContractId @A.Allocation alloc
+  extraArgs = noExtra
+
+-- ---------------------------------------------------------------------------------------------------------
+-- transfers
+
+testOfferAccept : Script ()
+testOfferAccept = do
+  w <- setup
+  h <- mint w w.alice 100.0
+  sendOffer w w.alice w.bob 30.0 [h]
+  [(i, _)] <- pendingOffers w
+  expectBalance (balance w w.alice) 70.0 "sender keeps the change while the offer is pending"
+  expectBalance (balance w w.bob) 0.0 "receiver has nothing before accepting"
+  _ <- submit w.bob (acceptOffer i)
+  expectBalance (balance w w.bob) 30.0 "receiver holds 30 after accepting"
+  expectBalance (balance w w.alice) 70.0 "sender has 70"
+  expectBalance (supplyAll w) 100.0 "supply unchanged"
+
+testRejectAndWithdrawReturnFunds : Script ()
+testRejectAndWithdrawReturnFunds = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  sendOffer w w.alice w.bob 4.0 [h]
+  [(i, _)] <- pendingOffers w
+  _ <- submit w.bob (rejectOffer i)
+  expectBalance (balance w w.alice) 10.0 "reject returns the funds"
+  hs <- freeOf w w.alice
+  sendOffer w w.alice w.bob 3.0 (map fst hs)
+  [(j, _)] <- pendingOffers w
+  _ <- submit w.alice (withdrawOffer j)
+  expectBalance (balance w w.alice) 10.0 "withdraw returns the funds"
+  expectBalance (supplyAll w) 10.0 "supply unchanged"
+
+testOnlyReceiverAccepts : Script ()
+testOnlyReceiverAccepts = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  sendOffer w w.alice w.bob 4.0 [h]
+  [(i, _)] <- pendingOffers w
+  submitMustFail w.alice (acceptOffer i)
+  submitMustFail w.admin (acceptOffer i)
+
+testAcceptAfterExpiryFails : Script ()
+testAcceptAfterExpiryFails = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  sendOffer w w.alice w.bob 4.0 [h]
+  [(i, _)] <- pendingOffers w
+  passTime (hours 2)
+  submitMustFail w.bob (acceptOffer i)
+  -- the sender can still get the money back after the expiry
+  _ <- submit w.alice (withdrawOffer i)
+  expectBalance (balance w w.alice) 10.0 "withdraw after expiry works"
+
+testTransferGuards : Script ()
+testTransferGuards = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  hb <- mint w w.bob 5.0
+  now <- getTime
+  let go s r a ins = submitMustFail (actAs s <> disclose w.tfD) (transferCmd w now s r a ins)
+  go w.alice w.bob 0.0000001 [h]          -- 7 decimals
+  go w.alice w.bob 0.0 [h]                -- zero
+  go w.alice w.bob (-1.0) [h]             -- negative
+  go w.alice w.bob 11.0 [h]               -- more than the inputs
+  go w.alice w.bob 1.0 []                 -- no inputs
+  go w.alice w.bob 1.0 [hb]               -- somebody else's holding
+  go w.bob w.alice 1.0 [h]                -- alice's holding, bob as sender
+  expectBalance (supplyAll w) 15.0 "nothing moved"
+
+testStaleDatesAndWrongAdminFail : Script ()
+testStaleDatesAndWrongAdminFail = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  now <- getTime
+  let mk exp adm = exerciseCmd (toInterfaceContractId @TI.TransferFactory w.tf) TI.TransferFactory_Transfer with
+        expectedAdmin = adm
+        transfer = TI.Transfer with
+          sender = w.alice
+          receiver = w.bob
+          amount = 1.0
+          instrumentId = cusdtInstrumentId w.admin
+          requestedAt = addRelTime now (seconds (-30))
+          executeBefore = exp
+          inputHoldingCids = [toInterfaceContractId h]
+          meta = M.emptyMetadata
+        extraArgs = noExtra
+  submitMustFail (actAs w.alice <> disclose w.tfD) (mk (addRelTime now (seconds (-1))) w.admin)   -- executeBefore in the past
+  submitMustFail (actAs w.alice <> disclose w.tfD) (mk (addRelTime now (hours 1)) w.bob)           -- wrong expectedAdmin
+  expectBalance (supplyAll w) 10.0 "nothing moved"
+
+testSelfTransferCompletesAtOnce : Script ()
+testSelfTransferCompletesAtOnce = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  sendOffer w w.alice w.alice 4.0 [h]
+  ps <- pendingOffers w
+  assertMsg "no pending instruction for a self transfer" (null ps)
+  expectBalance (balance w w.alice) 10.0 "balance unchanged"
+
+testDirectTransferWithPreapproval : Script ()
+testDirectTransferWithPreapproval = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  h2 <- mint w w.alice 1.0
+  adm <- submit w.admin do createCmd CusdtAdmin with admin = w.admin
+  pre <- submit w.admin do exerciseCmd adm CusdtAdmin_CreatePreapproval with receiver = w.bob
+  Some preD <- queryDisclosure w.admin pre
+  now <- getTime
+  let ctx = M.ExtraArgs with
+        context = M.ChoiceContext with values = TextMap.fromList [(preapprovalKey, M.AV_ContractId (coerceContractId pre))]
+        meta = M.emptyMetadata
+  let mk r a h = exerciseCmd (toInterfaceContractId @TI.TransferFactory w.tf) TI.TransferFactory_Transfer with
+        expectedAdmin = w.admin
+        transfer = TI.Transfer with
+          sender = w.alice
+          receiver = r
+          amount = a
+          instrumentId = cusdtInstrumentId w.admin
+          requestedAt = addRelTime now (seconds (-30))
+          executeBefore = addRelTime now (hours 1)
+          inputHoldingCids = [toInterfaceContractId h]
+          meta = M.emptyMetadata
+        extraArgs = ctx
+  -- a preapproval for bob cannot be used to pay somebody else
+  submitMustFail (actAs w.alice <> disclose w.tfD <> disclose preD) (mk w.admin 1.0 h2)
+  _ <- submit (actAs w.alice <> disclose w.tfD <> disclose preD) (mk w.bob 6.0 h)
+  ps <- pendingOffers w
+  assertMsg "direct: no pending instruction" (null ps)
+  expectBalance (balance w w.bob) 6.0 "receiver credited at once"
+
+-- ---------------------------------------------------------------------------------------------------------
+-- holdings: split / merge / burn
+
+testSplitMergeBurn : Script ()
+testSplitMergeBurn = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  (a, b) <- submit w.alice do exerciseCmd h CusdtHolding_Split with splitAmount = 3.0
+  expectBalance (balance w w.alice) 10.0 "split keeps the total"
+  m <- submit w.alice do exerciseCmd a CusdtHolding_Merge with otherCids = [b]
+  hs <- freeOf w w.alice
+  assertMsg "merge leaves one holding" (length hs == 1)
+  expectBalance (balance w w.alice) 10.0 "merge keeps the total"
+  submitMustFail w.alice do exerciseCmd m CusdtHolding_Split with splitAmount = 10.0          -- not strictly less
+  submitMustFail w.alice do exerciseCmd m CusdtHolding_Split with splitAmount = 0.0
+  submitMustFail w.alice do exerciseCmd m CusdtHolding_Split with splitAmount = 0.0000001     -- 7 decimals
+  submitMustFail w.bob do exerciseCmd m CusdtHolding_Split with splitAmount = 1.0             -- not the owner
+  submitMustFail w.admin do exerciseCmd m CusdtHolding_Burn                                    -- admin cannot use the custom Burn
+  _ <- submit w.alice do exerciseCmd m CusdtHolding_Burn
+  expectBalance (supplyAll w) 0.0 "owner burn removes the amount"
+
+testMergeGuards : Script ()
+testMergeGuards = do
+  w <- setup
+  a <- mint w w.alice 5.0
+  b <- mint w w.alice 2.0
+  c <- mint w w.bob 7.0
+  submitMustFail w.alice do exerciseCmd a CusdtHolding_Merge with otherCids = [b, b]   -- the same holding twice
+  submitMustFail w.alice do exerciseCmd a CusdtHolding_Merge with otherCids = [a]      -- with itself
+  submitMustFail w.alice do exerciseCmd a CusdtHolding_Merge with otherCids = [c]      -- somebody else's
+  expectBalance (supplyAll w) 14.0 "nothing moved"
+
+-- ---------------------------------------------------------------------------------------------------------
+-- allocations and locks
+
+testAllocationExecute : Script ()
+testAllocationExecute = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  alloc <- doAllocate w w.alice w.bob "ref-1" 4.0 [h]
+  expectBalance (balance w w.alice) 6.0 "change returned, 4 are locked"
+  locked <- lockedOf w w.alice
+  assertMsg "exactly one locked holding" (length locked == 1)
+  expectBalance (supplyAll w) 10.0 "locked funds are still supply"
+  -- executor + sender + receiver must all act
+  submitMustFail (actAs [w.admin, w.alice]) (executeAlloc alloc)
+  submitMustFail (actAs [w.admin, w.bob]) (executeAlloc alloc)
+  _ <- submit (actAs [w.admin, w.alice, w.bob]) (executeAlloc alloc)
+  expectBalance (balance w w.bob) 4.0 "receiver paid"
+  lockedAfter <- lockedOf w w.alice
+  assertMsg "no locked holding left" (null lockedAfter)
+  expectBalance (supplyAll w) 10.0 "supply unchanged"
+
+testLockedHoldingCannotBeTouched : Script ()
+testLockedHoldingCannotBeTouched = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  _ <- doAllocate w w.alice w.bob "ref-2" 4.0 [h]
+  other <- mint w w.alice 1.0
+  [(l, _)] <- lockedOf w w.alice
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_Burn
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_Merge with otherCids = [other]
+  submitMustFail w.alice do exerciseCmd other CusdtHolding_Merge with otherCids = [l]
+  now <- getTime
+  submitMustFail (actAs w.alice <> disclose w.tfD) (transferCmd w now w.alice w.bob 1.0 [l])
+  submitMustFail (actAs w.alice <> disclose w.afD) (allocateCmd w now w.alice w.bob w.admin "ref-3" 1.0 [l])
+
+testSpentHoldingCannotBeAllocatedAgain : Script ()
+testSpentHoldingCannotBeAllocatedAgain = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  _ <- doAllocate w w.alice w.bob "ref-4" 4.0 [h]
+  now <- getTime
+  submitMustFail (actAs w.alice <> disclose w.afD) (allocateCmd w now w.alice w.bob w.admin "ref-5" 4.0 [h])   -- h is gone
+
+testWithdrawReleasesAndOnlySenderCan : Script ()
+testWithdrawReleasesAndOnlySenderCan = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  alloc <- doAllocate w w.alice w.bob "ref-6" 4.0 [h]
+  submitMustFail w.bob (withdrawAlloc alloc)
+  submitMustFail w.admin (withdrawAlloc alloc)
+  _ <- submit w.alice (withdrawAlloc alloc)
+  expectBalance (balance w w.alice) 10.0 "all 10 back and unlocked"
+  locked <- lockedOf w w.alice
+  assertMsg "no locked holding" (null locked)
+
+testSettlementWindow : Script ()
+testSettlementWindow = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  alloc <- doAllocate w w.alice w.bob "ref-7" 4.0 [h]
+  passTime (hours 3)    -- past settleBefore (2 h)
+  submitMustFail (actAs [w.admin, w.alice, w.bob]) (executeAlloc alloc)
+  -- FINDING documented as a test: an EXPIRED lock does not unlock by itself (expiresAt is not honoured by Split/Burn);
+  -- the sender gets the funds back by withdrawing.
+  [(l, _)] <- lockedOf w w.alice
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0
+  _ <- submit w.alice (withdrawAlloc alloc)
+  expectBalance (balance w w.alice) 10.0 "withdraw after the window releases everything"
+
+-- ---------------------------------------------------------------------------------------------------------
+-- issuer powers (documented behaviour)
+
+testIssuerPowers : Script ()
+testIssuerPowers = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  adm <- submit w.admin do createCmd CusdtAdmin with admin = w.admin
+  -- mint only by the admin, precision enforced
+  submitMustFail w.alice do exerciseCmd adm CusdtAdmin_Mint with recipient = w.alice, amount = 1.0
+  submitMustFail w.admin do exerciseCmd adm CusdtAdmin_Mint with recipient = w.alice, amount = 0.0000001
+  submitMustFail w.admin do exerciseCmd adm CusdtAdmin_Mint with recipient = w.alice, amount = 0.0
+  -- FINDING: the admin is the sole signatory of every holding, so the built-in Archive lets it destroy any balance
+  submit w.admin do archiveCmd h
+  expectBalance (supplyAll w) 0.0 "admin could destroy alice's holding"
+
+testAdminAloneCannotArchiveInstructionOrAllocation : Script ()
+testAdminAloneCannotArchiveInstructionOrAllocation = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  h2 <- mint w w.alice 5.0
+  sendOffer w w.alice w.bob 3.0 [h]
+  [(i, _)] <- pendingOffers w
+  submitMustFail w.admin do archiveCmd i
+  alloc <- doAllocate w w.alice w.bob "ref-8" 2.0 [h2]
+  submitMustFail w.admin do archiveCmd alloc
+
+-- ---------------------------------------------------------------------------------------------------------
+-- delegated settlement
+
+delegate : World -> Text -> Time -> Script (ContractId CusdtSettlementAuthority)
+delegate w ref expires = do
+  p <- submit w.alice do
+    createCmd CusdtSettlementProposal with
+      executor = w.admin
+      sender = w.alice
+      receiver = w.bob
+      settlementRefId = ref
+      expiresAt = expires
+  submit w.bob do exerciseCmd p CusdtSettlementProposal_Accept
+
+testDelegatedSettlement : Script ()
+testDelegatedSettlement = do
+  w <- setup
+  now <- getTime
+  h <- mint w w.alice 10.0
+  auth <- delegate w "ref-9" (addRelTime now (hours 5))
+  alloc <- doAllocate w w.alice w.bob "ref-9" 4.0 [h]
+  -- the executor ALONE settles
+  _ <- submit w.admin (execViaAuthority auth alloc)
+  expectBalance (balance w w.bob) 4.0 "receiver paid by the executor alone"
+  -- the authority is non-consuming but the allocation is gone: no second settlement
+  submitMustFail w.admin (execViaAuthority auth alloc)
+
+testDelegationIsScoped : Script ()
+testDelegationIsScoped = do
+  w <- setup
+  now <- getTime
+  h <- mint w w.alice 10.0
+  auth <- delegate w "ref-10" (addRelTime now (hours 5))
+  other <- doAllocate w w.alice w.bob "another-settlement" 4.0 [h]
+  submitMustFail w.admin (execViaAuthority auth other)
+  submitMustFail w.alice (execViaAuthority auth other)     -- only the executor may use it
+  submitMustFail w.bob (cancelViaAuthority auth other)
+
+testDelegationRevocationAndExpiry : Script ()
+testDelegationRevocationAndExpiry = do
+  w <- setup
+  now <- getTime
+  h <- mint w w.alice 10.0
+  h2 <- mint w w.alice 10.0
+  auth <- delegate w "ref-11" (addRelTime now (hours 5))
+  alloc <- doAllocate w w.alice w.bob "ref-11" 4.0 [h]
+  submitMustFail w.admin do exerciseCmd auth CusdtSettlement_RevokeBySender              -- the executor cannot revoke
+  submitMustFail w.bob do exerciseCmd auth CusdtSettlement_RevokeBySender                -- wrong role
+  submit w.bob do exerciseCmd auth CusdtSettlement_RevokeByReceiver                      -- the receiver alone can
+  submitMustFail w.admin (execViaAuthority auth alloc)
+  auth2 <- delegate w "ref-11" (addRelTime now (hours 5))
+  submit w.alice do exerciseCmd auth2 CusdtSettlement_RevokeBySender                     -- so can the sender alone
+  -- an authority past its expiry cannot be used
+  auth3 <- delegate w "ref-11" (addRelTime now (hours 1))
+  passTime (hours 2)
+  submitMustFail w.admin (execViaAuthority auth3 alloc)
+  _ <- submit w.alice (withdrawAlloc alloc)
+  expectBalance (balance w w.alice) 20.0 "nothing was settled, alice has everything back"
+  _ <- pure h2
+  pure ()
+
+testCancelThroughAuthority : Script ()
+testCancelThroughAuthority = do
+  w <- setup
+  now <- getTime
+  h <- mint w w.alice 10.0
+  auth <- delegate w "ref-12" (addRelTime now (hours 5))
+  alloc <- doAllocate w w.alice w.bob "ref-12" 4.0 [h]
+  _ <- submit w.admin (cancelViaAuthority auth alloc)
+  expectBalance (balance w w.alice) 10.0 "executor cancel returns the funds to the sender"
+  expectBalance (balance w w.bob) 0.0 "receiver got nothing"
+
+testProposalRules : Script ()
+testProposalRules = do
+  w <- setup
+  now <- getTime
+  submitMustFail w.alice do
+    createCmd CusdtSettlementProposal with
+      executor = w.admin
+      sender = w.alice
+      receiver = w.alice
+      settlementRefId = "x"
+      expiresAt = addRelTime now (hours 1)
+  -- an expired proposal cannot be accepted
+  p <- submit w.alice do
+    createCmd CusdtSettlementProposal with
+      executor = w.admin
+      sender = w.alice
+      receiver = w.bob
+      settlementRefId = "y"
+      expiresAt = addRelTime now (hours 1)
+  passTime (hours 2)
+  submitMustFail w.bob do exerciseCmd p CusdtSettlementProposal_Accept

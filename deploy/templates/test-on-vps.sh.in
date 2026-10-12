@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Builds the cUSDT test package on the testnet VPS and runs the Daml Script unit tests (no network, no traffic).
+# Needs the DAR from update-on-vps.sh (it is rebuilt here if missing).   Save as a file, then:  bash test-on-vps.sh
+set -euo pipefail
+export PATH="$HOME/.dpm/bin:$PATH"
+C=$HOME/cusdt-token/daml/cusdt-token
+T=$HOME/cusdt-token/daml/cusdt-token-test
+DAR=$C/.daml/dist/cusdt-token-@@VERSION@@.dar
+[ -s "$DAR" ] || { echo "== building $DAR first =="; (cd $C && dpm install package && dpm build); }
+ls -la "$DAR"
+mkdir -p $T/daml
+cat > $T/daml.yaml <<'EOF_YAML'
+@@EMBED daml/cusdt-token-test/daml.yaml@@
+EOF_YAML
+cat > $T/daml/CusdtTokenTest.daml <<'EOF_DAML'
+@@EMBED daml/cusdt-token-test/daml/CusdtTokenTest.daml@@
+EOF_DAML
+cd $T
+echo "== build tests =="
+dpm install package
+dpm build
+echo "== run tests =="
+dpm test

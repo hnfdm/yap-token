@@ -4,17 +4,17 @@
 import { readFileSync, appendFileSync } from "node:fs";
 import { getToken, ledger, acs, need, env, PKG } from "./lib.mjs";
 
-const HINT = "cusdt-mzf-carol";
+const HINT = process.env.CUSDT_SETUP_HINT ?? "cusdt-mzf-carol", KEY = process.env.CUSDT_SETUP_KEY ?? "CUSDT_MZF_CAROL";
 const DAR = process.env.DAR ?? "daml/cusdt-token/.daml/dist/cusdt-token-0.4.1.dar";
 const token = await getToken();
 console.log("participant:", (await ledger(token, "/v2/version")).version);
 
 // 1. receiver party (participant-hosted) + rights for the ledger user
-let party = env.CUSDT_MZF_CAROL;
+let party = env[KEY];
 if (!party) {
   party = (await ledger(token, "/v2/parties", { method: "POST", json: { partyIdHint: HINT, identityProviderId: "" } })).partyDetails.party;
   console.log("allocated", party);
-  appendFileSync(new URL("../.env.mzf", import.meta.url), `CUSDT_MZF_CAROL=${party}\n`);
+  appendFileSync(new URL("../" + (process.env.CUSDT_ENV_FILE ?? ".env.mzf"), import.meta.url), `${KEY}=${party}\n`);
 }
 const userId = need("LEDGER_USER_ID");
 await ledger(token, `/v2/users/${encodeURIComponent(userId)}/rights`, { method: "POST", json: { userId, identityProviderId: "",

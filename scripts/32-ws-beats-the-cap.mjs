@@ -7,7 +7,7 @@ import { T, snapshot, supply, checkInvariants } from "./invariants.mjs";
 import { node } from "./nodes.mjs";
 import { wsActiveContracts } from "./31-ws-active-contracts.mjs";
 
-const COUNT = Number(process.argv[2] ?? 205), BUDGET = Number(process.env.BUDGET ?? 200_000);
+const COUNT = Number(process.argv[2] ?? 205), BUDGET = Number(process.env.BUDGET ?? 450_000);
 const E = loadEnv(".env.testnet"); if (E.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const n = node(E, "ours"), admin = E.CUSDT_ADMIN_PARTY, ALICE = `cusdt-alice::${admin.split("::")[1]}`;
 let pass = 0, fail = 0, bytes = 0;
@@ -26,7 +26,9 @@ try {
   }
   console.log(`created ${created.length} junk preapprovals (metered ${bytes} bytes); existing before: ${before}`);
   let httpErr = null, httpN = null; try { httpN = (await n.acs(admin, T.PRE)).length; } catch (e) { httpErr = String(e.message); }
-  ok("HTTP list is refused above 200", !!httpErr && /MAXIMUM_LIST_ELEMENTS/.test(httpErr), httpErr ? httpErr.match(/JSON_API_[A-Z_]+/)?.[0] : `returned ${httpN}`);
+  // default node: HTTP refuses above 200; a node with http-list-max-elements-limit raised returns everything (both are correct behaviour)
+  if (httpErr) ok("HTTP list is refused above 200 (default limit)", /MAXIMUM_LIST_ELEMENTS/.test(httpErr), httpErr.match(/JSON_API_[A-Z_]+/)?.[0]);
+  else ok("HTTP list returns everything (limit raised on this node)", httpN === before + COUNT, `${httpN} contracts`);
   const t0 = Date.now(); const viaWs = await wsActiveContracts(n, E, admin, T.PRE, { blob: true });
   ok("websocket stream returns ALL of them", viaWs.length === before + COUNT, `${viaWs.length} contracts in ${Date.now() - t0} ms (expected ${before + COUNT})`);
   ok("every created id is in the stream", created.every((c) => viaWs.some((x) => x.contractId === c)));

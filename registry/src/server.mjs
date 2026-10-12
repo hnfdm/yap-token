@@ -128,7 +128,9 @@ async function body(req) {
     chunks.push(c);
   }
   const s = Buffer.concat(chunks).toString();
-  try { return s ? JSON.parse(s) : {}; } catch { throw new HttpError(400, "invalid JSON"); }
+  let v; try { v = s ? JSON.parse(s) : {}; } catch { throw new HttpError(400, "invalid JSON"); }
+  if (v === null || typeof v !== "object" || Array.isArray(v)) throw new HttpError(400, "body must be a JSON object");
+  return v;
 }
 
 function send(res, status, data) {
@@ -173,6 +175,8 @@ async function route(req, res) {
     if (tr.instrumentId?.admin !== ADMIN || tr.instrumentId?.id !== SYMBOL)
       throw new HttpError(404, "unknown instrument");
     const d = await findFactory();
+    if (typeof tr.sender !== "string" || typeof tr.receiver !== "string" || !tr.receiver)
+      throw new HttpError(400, "transfer.sender and transfer.receiver must be party id strings");
     if (tr.sender === tr.receiver)
       return send(res, 200, { factoryId: d.contractId, transferKind: "self",
         choiceContext: { choiceContextData: { values: {} }, disclosedContracts: [d] } });

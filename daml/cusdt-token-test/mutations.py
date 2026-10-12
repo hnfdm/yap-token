@@ -13,6 +13,7 @@ ORIG = open(SRC).read()
 # (name, old text, new text, nth occurrence of `old` (1-based))
 M = [
  ("precision rule", '(roundBankers 6 x == x)', 'True', 1),
+ ("spend: input admin", '(h.admin == admin)', 'True', 1),
  ("spend: input owner", '(h.owner == sender)', 'True', 1),
  ("spend: input locked", '(h.lock == None)', 'True', 1),
  ("spend: insufficient funds", '(total >= amount)', 'True', 1),

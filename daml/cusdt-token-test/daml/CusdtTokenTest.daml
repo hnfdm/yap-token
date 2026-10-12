@@ -19,6 +19,7 @@ data World = World with
   admin : Party
   alice : Party
   bob   : Party
+  carol : Party
   tf    : ContractId CusdtTransferFactory
   af    : ContractId CusdtAllocationFactory
   tfD   : Disclosure
@@ -34,6 +35,7 @@ setup = do
   admin <- allocateParty "admin"
   alice <- allocateParty "alice"
   bob <- allocateParty "bob"
+  carol <- allocateParty "carol"
   setTime (time (date 2026 Oct 12) 9 0 0)
   tf <- submit admin do createCmd CusdtTransferFactory with admin
   af <- submit admin do createCmd CusdtAllocationFactory with admin
@@ -73,20 +75,24 @@ expectBalance s expected msg = do
   v <- s
   assertMsg (msg <> " (expected " <> show expected <> ", got " <> show v <> ")") (v == expected)
 
-transferCmd : World -> Time -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Commands TI.TransferInstructionResult
-transferCmd w now s r a ins =
+-- the fully parameterised form is used by the "must fail" tests that vary exactly one field
+transferCmdFull : World -> Time -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Party -> Party -> RelTime -> RelTime -> M.ExtraArgs -> Commands TI.TransferInstructionResult
+transferCmdFull w now s r a ins expAdmin instAdmin reqOff execOff extra =
   exerciseCmd (toInterfaceContractId @TI.TransferFactory w.tf) TI.TransferFactory_Transfer with
-    expectedAdmin = w.admin
+    expectedAdmin = expAdmin
     transfer = TI.Transfer with
       sender = s
       receiver = r
       amount = a
-      instrumentId = cusdtInstrumentId w.admin
-      requestedAt = addRelTime now (seconds (-30))
-      executeBefore = addRelTime now (hours 1)
+      instrumentId = cusdtInstrumentId instAdmin
+      requestedAt = addRelTime now reqOff
+      executeBefore = addRelTime now execOff
       inputHoldingCids = map toInterfaceContractId ins
       meta = M.emptyMetadata
-    extraArgs = noExtra
+    extraArgs = extra
+
+transferCmd : World -> Time -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Commands TI.TransferInstructionResult
+transferCmd w now s r a ins = transferCmdFull w now s r a ins w.admin w.admin (seconds (-30)) (hours 1) noExtra
 
 sendOffer : World -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Script ()
 sendOffer w s r a ins = do
@@ -106,38 +112,48 @@ withdrawOffer c = exerciseCmd (toInterfaceContractId @TI.TransferInstruction c) 
 rejectOffer : ContractId CusdtTransferInstruction -> Commands TI.TransferInstructionResult
 rejectOffer c = exerciseCmd (toInterfaceContractId @TI.TransferInstruction c) TI.TransferInstruction_Reject with extraArgs = noExtra
 
-allocateCmd : World -> Time -> Party -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Commands AI.AllocationInstructionResult
-allocateCmd w now s r executor ref a ins =
+allocateCmdFull : World -> Time -> Party -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Party -> Party -> RelTime -> RelTime -> RelTime -> Commands AI.AllocationInstructionResult
+allocateCmdFull w now s r executor ref a ins expAdmin instAdmin reqOff allocOff settleOff =
   exerciseCmd (toInterfaceContractId @AI.AllocationFactory w.af) AI.AllocationFactory_Allocate with
-    expectedAdmin = w.admin
+    expectedAdmin = expAdmin
     allocation = A.AllocationSpecification with
       settlement = A.SettlementInfo with
         executor
         settlementRef = A.Reference with id = ref, cid = None
-        requestedAt = addRelTime now (seconds (-30))
-        allocateBefore = addRelTime now (hours 1)
-        settleBefore = addRelTime now (hours 2)
+        requestedAt = addRelTime now reqOff
+        allocateBefore = addRelTime now allocOff
+        settleBefore = addRelTime now settleOff
         meta = M.emptyMetadata
       transferLegId = "leg-1"
       transferLeg = A.TransferLeg with
         sender = s
         receiver = r
         amount = a
-        instrumentId = cusdtInstrumentId w.admin
+        instrumentId = cusdtInstrumentId instAdmin
         meta = M.emptyMetadata
-    requestedAt = addRelTime now (seconds (-30))
+    requestedAt = addRelTime now reqOff
     inputHoldingCids = map toInterfaceContractId ins
     extraArgs = noExtra
 
--- creates an allocation and returns the NEWEST one (tests that create several take the last)
-doAllocate : World -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Script (ContractId CusdtAllocation)
-doAllocate w s r ref a ins = do
+allocateCmd : World -> Time -> Party -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Commands AI.AllocationInstructionResult
+allocateCmd w now s r executor ref a ins = allocateCmdFull w now s r executor ref a ins w.admin w.admin (seconds (-30)) (hours 1) (hours 2)
+
+-- creates an allocation and returns the one matching executor / sender / receiver / reference
+doAllocateFull : World -> Party -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Script (ContractId CusdtAllocation)
+doAllocateFull w s r executor ref a ins = do
   now <- getTime
-  _ <- submit (actAs s <> disclose w.afD) (allocateCmd w now s r w.admin ref a ins)
+  _ <- submit (actAs s <> disclose w.afD) (allocateCmd w now s r executor ref a ins)
   allocs <- query @CusdtAllocation w.admin
-  case [ c | (c, x) <- allocs, x.allocation.settlement.settlementRef.id == ref ] of
+  case [ c | (c, x) <- allocs
+           , x.allocation.settlement.settlementRef.id == ref
+           , x.allocation.settlement.executor == executor
+           , x.allocation.transferLeg.sender == s
+           , x.allocation.transferLeg.receiver == r ] of
     (c :: _) -> pure c
     [] -> abort ("allocation not found for " <> ref)
+
+doAllocate : World -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Script (ContractId CusdtAllocation)
+doAllocate w s r ref a ins = doAllocateFull w s r w.admin ref a ins
 
 executeAlloc : ContractId CusdtAllocation -> Commands A.Allocation_ExecuteTransferResult
 executeAlloc c = exerciseCmd (toInterfaceContractId @A.Allocation c) A.Allocation_ExecuteTransfer with extraArgs = noExtra
@@ -506,3 +522,94 @@ testProposalRules = do
       expiresAt = addRelTime now (hours 1)
   passTime (hours 2)
   submitMustFail w.bob do exerciseCmd p CusdtSettlementProposal_Accept
+
+-- ---------------------------------------------------------------------------------------------------------
+-- added after the first mutation run: rules that no test protected on their own
+
+-- the holding is DISCLOSED to alice, so only the ownership rule inside the contract can stop her
+testForeignAndMixedHoldings : Script ()
+testForeignAndMixedHoldings = do
+  w <- setup
+  admin2 <- allocateParty "admin2"
+  ha <- mint w w.alice 5.0
+  hb <- mint w w.bob 7.0
+  Some hbD <- queryDisclosure w.admin hb
+  now <- getTime
+  submitMustFail (actAs w.alice <> disclose w.tfD <> disclose hbD) (transferCmd w now w.alice w.bob 1.0 [hb])
+  submitMustFail (actAs w.alice <> disclose w.afD <> disclose hbD) (allocateCmd w now w.alice w.bob w.admin "f" 1.0 [hb])
+  submitMustFail (actAs w.alice <> disclose hbD) do exerciseCmd ha CusdtHolding_Merge with otherCids = [hb]
+  -- a holding of ANOTHER issuer with the same owner must not be mixed in
+  h2 <- submit admin2 do createCmd CusdtHolding with admin = admin2, owner = w.alice, amount = 3.0, lock = None
+  Some h2D <- queryDisclosure admin2 h2
+  submitMustFail (actAs w.alice <> disclose h2D) do exerciseCmd ha CusdtHolding_Merge with otherCids = [h2]
+  submitMustFail (actAs w.alice <> disclose w.tfD <> disclose h2D) (transferCmd w now w.alice w.bob 1.0 [h2])
+  expectBalance (balance w w.bob) 7.0 "bob untouched"
+
+testPreapprovalOfAnotherIssuerIsRejected : Script ()
+testPreapprovalOfAnotherIssuerIsRejected = do
+  w <- setup
+  admin2 <- allocateParty "admin2"
+  h <- mint w w.alice 10.0
+  adm2 <- submit admin2 do createCmd CusdtAdmin with admin = admin2
+  pre2 <- submit admin2 do exerciseCmd adm2 CusdtAdmin_CreatePreapproval with receiver = w.bob
+  Some pre2D <- queryDisclosure admin2 pre2
+  now <- getTime
+  let ctx = M.ExtraArgs with
+        context = M.ChoiceContext with values = TextMap.fromList [(preapprovalKey, M.AV_ContractId (coerceContractId pre2))]
+        meta = M.emptyMetadata
+  submitMustFail (actAs w.alice <> disclose w.tfD <> disclose pre2D) (transferCmdFull w now w.alice w.bob 1.0 [h] w.admin w.admin (seconds (-30)) (hours 1) ctx)
+
+testTransferFieldGuards : Script ()
+testTransferFieldGuards = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  now <- getTime
+  let go expA instA reqOff execOff = submitMustFail (actAs w.alice <> disclose w.tfD) (transferCmdFull w now w.alice w.bob 1.0 [h] expA instA reqOff execOff noExtra)
+  go w.admin w.alice (seconds (-30)) (hours 1)     -- instrument of another admin
+  go w.admin w.admin (seconds 30) (hours 1)        -- requestedAt in the future
+  expectBalance (supplyAll w) 10.0 "nothing moved"
+
+testAllocationFieldGuards : Script ()
+testAllocationFieldGuards = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  now <- getTime
+  let go expA instA a reqOff allocOff settleOff = submitMustFail (actAs w.alice <> disclose w.afD) (allocateCmdFull w now w.alice w.bob w.admin "g" a [h] expA instA reqOff allocOff settleOff)
+  go w.bob w.admin 1.0 (seconds (-30)) (hours 1) (hours 2)          -- wrong expectedAdmin
+  go w.admin w.alice 1.0 (seconds (-30)) (hours 1) (hours 2)        -- instrument of another admin
+  go w.admin w.admin 0.0000001 (seconds (-30)) (hours 1) (hours 2)  -- 7 decimals
+  go w.admin w.admin 1.0 (seconds 30) (hours 1) (hours 2)           -- requestedAt in the future
+  go w.admin w.admin 1.0 (seconds (-30)) (seconds (-1)) (hours 2)   -- allocateBefore already passed
+  go w.admin w.admin 1.0 (seconds (-30)) (hours 1) (hours 1)        -- settleBefore not after allocateBefore
+  expectBalance (supplyAll w) 10.0 "nothing moved"
+
+-- one authority (alice -> bob, executor admin, ref "ref-m"); every allocation below differs from it in exactly ONE respect
+testDelegationMismatches : Script ()
+testDelegationMismatches = do
+  w <- setup
+  now <- getTime
+  h <- mint w w.alice 10.0
+  hc <- mint w w.carol 10.0
+  auth <- delegate w "ref-m" (addRelTime now (hours 5))
+  a1 <- doAllocateFull w w.alice w.bob w.bob "ref-m" 1.0 [h]            -- another executor
+  submitMustFail w.admin (execViaAuthority auth a1)
+  a2 <- doAllocateFull w w.carol w.bob w.admin "ref-m" 1.0 [hc]          -- another sender
+  submitMustFail w.admin (execViaAuthority auth a2)
+  hs <- freeOf w w.alice
+  a3 <- doAllocateFull w w.alice w.carol w.admin "ref-m" 1.0 (map fst hs)   -- another receiver
+  submitMustFail w.admin (execViaAuthority auth a3)
+  expectBalance (balance w w.bob) 0.0 "nothing was settled"
+
+-- the allocation window (2 h) is still open when the 1 h authority has expired
+testDelegationExpiresOnItsOwn : Script ()
+testDelegationExpiresOnItsOwn = do
+  w <- setup
+  now <- getTime
+  h <- mint w w.alice 10.0
+  auth <- delegate w "ref-e" (addRelTime now (hours 1))
+  alloc <- doAllocate w w.alice w.bob "ref-e" 4.0 [h]
+  passTime (minutes 90)
+  submitMustFail w.admin (execViaAuthority auth alloc)
+  -- the same settlement still works with all three parties acting (window still open)
+  _ <- submit (actAs [w.admin, w.alice, w.bob]) (executeAlloc alloc)
+  expectBalance (balance w w.bob) 4.0 "paid without the delegation"

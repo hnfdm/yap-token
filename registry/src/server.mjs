@@ -51,7 +51,7 @@ const findAllocationFactory = () => findSingleton("CusdtAllocationFactory");
 
 async function findSingleton(tpl) {
   const hit = singletonCache.get(tpl);
-  if (hit && Date.now() - hit.ts < 30_000) return hit.d;
+  if (hit && Date.now() - hit.ts < 5_000) return hit.d;
   const t = await ledgerToken();
   const h = { "Content-Type": "application/json", Authorization: `Bearer ${t}` };
   const end = await (await fetch(`${LEDGER_URL}/v2/state/ledger-end`, { headers: h, signal: AbortSignal.timeout(10_000) })).json();

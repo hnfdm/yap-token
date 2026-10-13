@@ -43,7 +43,7 @@ test -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
 cat >> "$CONF" <<EOF_HTTPS
 # --- https ---
 server {
-    listen $PUBIP:443 ssl;
+    listen 443 ssl;   # NOT $PUBIP:443: an IP-specific listen takes the whole IP:443 group away from the other (wildcard) server blocks
     server_name $DOMAIN;
     ssl_certificate     /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;

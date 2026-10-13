@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Installs the cUSDT registry as a systemd service on the cryptolampung testnet VPS (same box as the validator).
+# Binds to 127.0.0.1:8787 only. Does NOT touch nginx or the validator; it writes an nginx
+# snippet for you to review. Save as a file, then:  bash install-registry-on-vps.sh
+set -euo pipefail
+[ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
+command -v node >/dev/null || { echo "node not found (need >= 18)"; exit 1; }
+node -e 'process.exit(+process.versions.node.split(".")[0] >= 18 ? 0 : 1)' || { echo "node >= 18 required"; exit 1; }
+
+D=/opt/cusdt-registry
+id cusdtreg >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin cusdtreg
+mkdir -p $D
+
+cat > $D/server.mjs <<'EOF_JS'
+@@EMBED registry/src/server.mjs@@
+EOF_JS
+chmod 644 $D/server.mjs
+
+# --- env file (secret is NOT filled in; you paste it) ---
+if [ ! -f /etc/cusdt-registry.env ]; then
+cat > /etc/cusdt-registry.env <<'EOF_ENV'
+HOST=127.0.0.1
+PORT=8787
+LEDGER_URL=https://ledger-testnet.cryptolampung.site
+KC_TOKEN_URL=https://auth-testnet.cryptolampung.site/realms/canton/protocol/openid-connect/token
+KC_CLIENT_ID=validator-app-backend
+KC_CLIENT_SECRET=__FROM_VALIDATOR_ENV__
+KC_SCOPE=daml_ledger_api
+CUSDT_ADMIN_PARTY=@@ADMIN@@
+CUSDT_PACKAGE_NAME=#cusdt-token
+# nginx on this box uses a self-signed cert; the service only talks to 127.0.0.1
+NODE_TLS_REJECT_UNAUTHORIZED=0
+EOF_ENV
+fi
+if grep -q __FROM_VALIDATOR_ENV__ /etc/cusdt-registry.env; then
+  SECRET=$(grep '^VALIDATOR_AUTH_CLIENT_SECRET=' /root/splice-node/docker-compose/validator/.env | head -1 | cut -d= -f2- | tr -d '"')
+  [ -n "$SECRET" ] || { echo "could not read VALIDATOR_AUTH_CLIENT_SECRET from the validator .env"; exit 1; }
+  sed -i "s|__FROM_VALIDATOR_ENV__|$SECRET|" /etc/cusdt-registry.env
+fi
+chmod 600 /etc/cusdt-registry.env
+
+# --- make the fake domains resolve to this box for the service (idempotent) ---
+grep -q "# cusdt-registry" /etc/hosts || echo "127.0.0.1 ledger-testnet.cryptolampung.site auth-testnet.cryptolampung.site # cusdt-registry" >> /etc/hosts
+
+cat > /etc/systemd/system/cusdt-registry.service <<'EOF_UNIT'
+[Unit]
+Description=cUSDT token registry (CIP-56 off-ledger API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cusdtreg
+EnvironmentFile=/etc/cusdt-registry.env
+ExecStart=/usr/bin/env node /opt/cusdt-registry/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF_UNIT
+
+systemctl daemon-reload
+systemctl enable cusdt-registry >/dev/null 2>&1
+
+systemctl restart cusdt-registry; sleep 3
+echo "health:"; curl -s localhost:8787/health; echo
+echo "NEXT: point the A record registry-testnet.airdropasc.com at this VPS, then run tls-letsencrypt-on-vps.sh"

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Gives the cUSDT registry a REAL certificate (Let's Encrypt, HTTP-01) under a public name, e.g. registry-testnet.airdropasc.com.
+# Only the registry becomes public: ledger / validator / auth hosts and the existing mahawallet.xyz blocks are NOT touched.
+#   Save as a file, then:  DOMAIN=registry-testnet.airdropasc.com bash tls-letsencrypt-on-vps.sh
+# Needs: an A record  DOMAIN -> this VPS' public IPv4  (checked below), port 80 reachable from the internet.
+# Port 80 is only bound on the PUBLIC IP, so the splice nginx container's 127.0.0.1:80 keeps working.
+set -euo pipefail
+DOMAIN="${DOMAIN:?set DOMAIN=registry-testnet.example.com}"
+PUBIP=$(curl -4 -fsS https://api.ipify.org)
+DNSIP=$(getent ahostsv4 "$DOMAIN" | awk '{print $1; exit}' || true)
+echo "VPS public IP: $PUBIP   $DOMAIN resolves to: ${DNSIP:-<nothing>}"
+[ "$PUBIP" = "$DNSIP" ] || { echo "DNS is not pointing at this VPS yet (wait for the A record to propagate), aborting."; exit 1; }
+ss -ltn | grep -E "(^|[ :])($PUBIP|0\.0\.0\.0|\*):80 " && { echo "something else already listens on $PUBIP:80, aborting (tell Claude)."; exit 1; } || true
+
+apt-get install -y certbot >/dev/null
+mkdir -p /var/www/acme
+CONF=/etc/nginx/sites-available/zz-cusdt-registry-public.conf
+LIMIT=/etc/nginx/conf.d/cusdt-registry-limit.conf
+[ -e "$CONF" ] && cp "$CONF" "$CONF.bak.$(date +%s)"
+
+# rate limit zone (http context) - the registry is going to be reachable by everybody
+cat > "$LIMIT" <<EOF_LIMIT
+limit_req_zone \$binary_remote_addr zone=cusdt_registry:10m rate=20r/s;
+EOF_LIMIT
+
+# phase 1: port 80 on the public IP only: ACME challenge (and nothing else yet)
+cat > "$CONF" <<EOF_HTTP
+server {
+    listen $PUBIP:80;
+    server_name $DOMAIN;
+    location /.well-known/acme-challenge/ { root /var/www/acme; }
+    location / { return 301 https://\$host\$request_uri; }
+}
+EOF_HTTP
+ln -sf "$CONF" /etc/nginx/sites-enabled/zz-cusdt-registry-public.conf
+nginx -t && systemctl reload nginx
+
+# issue the certificate (no email prompt; renewals run from certbot.timer)
+certbot certonly --webroot -w /var/www/acme -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email
+test -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+
+# phase 2: add the HTTPS block that proxies to the registry service (127.0.0.1:8787, same as the existing mahawallet.xyz block)
+cat >> "$CONF" <<EOF_HTTPS
+# --- https ---
+server {
+    listen $PUBIP:443 ssl;
+    server_name $DOMAIN;
+    ssl_certificate     /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    client_max_body_size 1m;
+    location / {
+        limit_req zone=cusdt_registry burst=40 nodelay;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_pass http://127.0.0.1:8787;
+    }
+}
+EOF_HTTPS
+mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+printf '#!/bin/sh\nsystemctl reload nginx\n' > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+if nginx -t; then systemctl reload nginx; else echo "nginx -t failed, removing the HTTPS block"; sed -i '/^# --- https ---$/,$d' "$CONF"; exit 1; fi
+
+echo "== check =="
+curl -fsS "https://$DOMAIN/health"; echo
+echo "certificate:"; echo | openssl s_client -connect "$DOMAIN:443" -servername "$DOMAIN" 2>/dev/null | openssl x509 -noout -subject -issuer -dates
+echo "renewal dry run:"; certbot renew --dry-run 2>&1 | tail -3

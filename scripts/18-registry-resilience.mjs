@@ -13,7 +13,7 @@ import { makeOps, amt, iso, IF } from "./ops.mjs";
 const admin = need("CUSDT_ADMIN_PARTY");
 const suffix = admin.split("::")[1];
 const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
-const REG = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.mahawallet.xyz";
+const REG = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
 const token = await getToken();
 const { transfer, ti, tpl } = makeOps({ token, admin, registry: REG });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

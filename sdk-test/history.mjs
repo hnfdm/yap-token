@@ -4,7 +4,7 @@ import { getToken, need } from "../scripts/lib.mjs";
 
 const admin = need("CUSDT_ADMIN_PARTY");
 const BOB = `cusdt-bob::${admin.split("::")[1]}`;
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.mahawallet.xyz";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
 const token = await getToken();
 const auth = { method: "static", token };
 const sdk = await (await SDK.create({ auth, ledgerClientUrl: need("LEDGER_URL") }))

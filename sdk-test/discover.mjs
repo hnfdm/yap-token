@@ -7,7 +7,7 @@ import { getToken, env, need } from "../scripts/lib.mjs";
 const admin = need("CUSDT_ADMIN_PARTY");
 const suffix = admin.split("::")[1];
 const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.mahawallet.xyz";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
 
 const token = await getToken();
 const auth = { method: "static", token };

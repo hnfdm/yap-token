@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { getToken, need, acs, submit as rawSubmit, PKG } from "../scripts/lib.mjs";
 
 const admin = need("CUSDT_ADMIN_PARTY");
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.mahawallet.xyz";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
 const token = await getToken();
 const auth = { method: "static", token };
 const sdk = await (await SDK.create({ auth, ledgerClientUrl: need("LEDGER_URL") }))

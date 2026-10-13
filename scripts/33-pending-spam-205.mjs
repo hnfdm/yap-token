@@ -12,7 +12,7 @@ import { wsActiveContracts } from "./31-ws-active-contracts.mjs";
 const N = Number(process.argv[2] ?? 205), BUDGET = Number(process.env.BUDGET ?? 700_000);
 const E = loadEnv(".env.testnet"); if (E.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const n = node(E, "ours"), admin = E.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, BOB0 = `cusdt-bob::${sfx}`;
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.mahawallet.xyz";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
 const HOLD = "#cusdt-token:CusdtToken:CusdtHolding", PRE = "#cusdt-token:CusdtToken:CusdtTransferPreapproval";
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();

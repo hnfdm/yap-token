@@ -11,7 +11,7 @@ const ROUNDS = Number(process.argv[2] ?? 3);
 const OURS = loadEnv(".env.testnet"), MZF = loadEnv(".env.mzf");
 if (OURS.INSECURE_TLS === "1" || MZF.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, CAROL = MZF.CUSDT_MZF_CAROL;
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.mahawallet.xyz";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
 const PKG = "#cusdt-token", PROPOSAL = `${PKG}:CusdtToken:CusdtSettlementProposal`, AUTH = `${PKG}:CusdtToken:CusdtSettlementAuthority`;
 const ours = node(OURS, "ours"), mzf = node(MZF, "mzf");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();

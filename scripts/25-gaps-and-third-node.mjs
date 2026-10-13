@@ -11,7 +11,7 @@ import { node, waitFor, sleep } from "./nodes.mjs";
 const OURS = loadEnv(".env.testnet"), CL = loadEnv(".env.cl");
 if (OURS.INSECURE_TLS === "1" || CL.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, BOB = `cusdt-bob::${sfx}`, DAVE = CL.CUSDT_CL_DAVE;
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.mahawallet.xyz";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
 const PKG = "#cusdt-token", HOLD = `${PKG}:CusdtToken:CusdtHolding`, PRE = `${PKG}:CusdtToken:CusdtTransferPreapproval`;
 const ours = node(OURS, "ours"), cl = node(CL, "cl");
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");

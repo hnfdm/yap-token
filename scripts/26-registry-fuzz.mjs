@@ -6,7 +6,7 @@ import { loadEnv } from "./lib.mjs";
 const OURS = loadEnv(".env.testnet");
 if (OURS.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, BOB = `cusdt-bob::${sfx}`;
-const R = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.mahawallet.xyz";
+const R = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
 const TF = "/registry/transfer-instruction/v1/transfer-factory", AF = "/registry/allocation-instruction/v1/allocation-factory";
 const inst = { admin, id: "cUSDT" };
 const goodT = () => ({ choiceArguments: { expectedAdmin: admin, transfer: { sender: ALICE, receiver: BOB, amount: "0.000001", instrumentId: inst, requestedAt: new Date().toISOString(), executeBefore: new Date(Date.now() + 36e5).toISOString(), inputHoldingCids: [], meta: { values: {} } } } });
@@ -61,7 +61,7 @@ console.log(`registry: ${R}\n`);
 for (const c of cases) {
   const r = await call(c.method, c.path, c.body, c.opts);
   // nginx in front answers some junk itself (HTML 400/414) or drops the connection for oversized headers: that is a refusal too
-  const front = /^<html>/i.test(r.text) && r.status >= 400 && r.status < 500 || (r.status === 0 && /query string/.test(c.name));
+  const front = /^<html>/i.test(r.text) && r.status >= 400 && r.status < 500 || (r.status === 0 && /query string|50k-char/.test(c.name));
   const good = (r.status >= 200 && r.status < 500 && r.json !== null || front) && r.ms < 15_000;
   ok(c.name, good, `${r.status || "no answer"} in ${r.ms} ms${r.json?.error ? ` ("${String(r.json.error).slice(0, 70)}")` : ""}${good ? "" : ` !! ${r.text.slice(0, 120)}`}`);
 }

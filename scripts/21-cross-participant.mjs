@@ -11,7 +11,7 @@ const OURS = loadEnv(".env.testnet"), MZF = loadEnv(".env.mzf");
 if (OURS.INSECURE_TLS === "1" || MZF.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, suffix = admin.split("::")[1];
 const ALICE = `cusdt-alice::${suffix}`, CAROL = MZF.CUSDT_MZF_CAROL;
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.mahawallet.xyz";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
 const PKG = "#cusdt-token";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");

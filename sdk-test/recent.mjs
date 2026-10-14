@@ -3,7 +3,7 @@ import { SDK } from "@canton-network/wallet-sdk";
 import { getToken, need } from "../scripts/lib.mjs";
 const admin = need("CUSDT_ADMIN_PARTY");
 const BOB = `cusdt-bob::${admin.split("::")[1]}`;
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const after = Number(process.argv[2] ?? 463000);
 const auth = { method: "static", token: await getToken() };
 const sdk = await (await SDK.create({ auth, ledgerClientUrl: need("LEDGER_URL") })).extend({ token: { auth, registries: [REGISTRY], registryAuth: "none" } });

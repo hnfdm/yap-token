@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Gives the cUSDT registry a REAL certificate (Let's Encrypt, HTTP-01) under a public name, e.g. registry-testnet.airdropasc.com.
+# Gives the cUSDT registry a REAL certificate (Let's Encrypt, HTTP-01) under a public name, e.g. registry-testnet.cryptolampung.space.
 # Only the registry becomes public: ledger / validator / auth hosts and the existing mahawallet.xyz blocks are NOT touched.
-#   Save as a file, then:  DOMAIN=registry-testnet.airdropasc.com bash tls-letsencrypt-on-vps.sh
+#   Save as a file, then:  DOMAIN=registry-testnet.cryptolampung.space bash tls-letsencrypt-on-vps.sh
 # Needs: an A record  DOMAIN -> this VPS' public IPv4  (checked below), port 80 reachable from the internet.
 # Port 80 is only bound on the PUBLIC IP, so the splice nginx container's 127.0.0.1:80 keeps working.
 set -euo pipefail

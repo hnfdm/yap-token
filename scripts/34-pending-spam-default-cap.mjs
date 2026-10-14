@@ -13,7 +13,7 @@ const OURS = loadEnv(".env.testnet"), CL = loadEnv(".env.cl");
 if (OURS.INSECURE_TLS === "1" || CL.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const ours = node(OURS, "ours"), cl = node(CL, "cl");
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, DAVE = CL.CUSDT_CL_DAVE;
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const HOLD = "#cusdt-token:CusdtToken:CusdtHolding";
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();

@@ -1,5 +1,5 @@
 // A FOREIGN validator as a third-party integrator would use us: dave lives on the cryptolampung validator and talks ONLY to
-//   (a) his own validator's ledger API   and   (b) our public registry (https://registry-testnet.airdropasc.com, real certificate),
+//   (a) his own validator's ledger API   and   (b) our public registry (https://registry-testnet.cryptolampung.space, real certificate),
 // driven by the official Wallet SDK. Alice (our node) plays the counterpart through a second SDK instance.
 //   CUSDT_ENV_FILE=.env.cl node sdk-test/foreign-wallet.mjs        (run from the repo root; ~5 transactions on cryptolampung)
 import { SDK } from "@canton-network/wallet-sdk";
@@ -8,7 +8,7 @@ import { node, waitFor } from "../scripts/nodes.mjs";
 
 const CL = loadEnv(".env.cl"), OURS = loadEnv(".env.testnet");
 if (CL.INSECURE_TLS === "1" || OURS.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";   // the LEDGER hosts are self-signed; the registry is not
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const admin = OURS.CUSDT_ADMIN_PARTY, ALICE = `cusdt-alice::${admin.split("::")[1]}`, DAVE = CL.CUSDT_CL_DAVE;
 
 let pass = 0, fail = 0, n = 0;

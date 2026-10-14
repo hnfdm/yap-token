@@ -10,7 +10,7 @@ import { node, sleep } from "./nodes.mjs";
 const OURS = loadEnv(".env.testnet");
 if (OURS.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`;
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const TFT = "#cusdt-token:CusdtToken:CusdtTransferFactory", HOLD = "#cusdt-token:CusdtToken:CusdtHolding";
 const ours = node(OURS, "ours");
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");

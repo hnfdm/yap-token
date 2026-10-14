@@ -68,4 +68,4 @@ systemctl enable cusdt-registry >/dev/null 2>&1
 
 systemctl restart cusdt-registry; sleep 3
 echo "health:"; curl -s localhost:8787/health; echo
-echo "NEXT: point the A record registry-testnet.airdropasc.com at this VPS, then run tls-letsencrypt-on-vps.sh"
+echo "NEXT: point the A record registry-testnet.cryptolampung.space at this VPS, then run tls-letsencrypt-on-vps.sh"

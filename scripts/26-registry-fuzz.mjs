@@ -6,7 +6,7 @@ import { loadEnv } from "./lib.mjs";
 const OURS = loadEnv(".env.testnet");
 if (OURS.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, BOB = `cusdt-bob::${sfx}`;
-const R = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
+const R = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const TF = "/registry/transfer-instruction/v1/transfer-factory", AF = "/registry/allocation-instruction/v1/allocation-factory";
 const inst = { admin, id: "cUSDT" };
 const goodT = () => ({ choiceArguments: { expectedAdmin: admin, transfer: { sender: ALICE, receiver: BOB, amount: "0.000001", instrumentId: inst, requestedAt: new Date().toISOString(), executeBefore: new Date(Date.now() + 36e5).toISOString(), inputHoldingCids: [], meta: { values: {} } } } });

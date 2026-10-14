@@ -8,7 +8,7 @@ import { getToken, ledger, need } from "../scripts/lib.mjs";
 import { snapshot, supply, checkInvariants } from "../scripts/invariants.mjs";
 
 const admin = need("CUSDT_ADMIN_PARTY");
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const token = await getToken();
 const auth = { method: "static", token };
 const sdk = await (await SDK.create({ auth, ledgerClientUrl: need("LEDGER_URL") })).extend({ token: { auth, registries: [REGISTRY], registryAuth: "none" } });

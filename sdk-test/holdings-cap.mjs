@@ -10,7 +10,7 @@ import { T, mu, snapshot, supply, checkInvariants } from "../scripts/invariants.
 const admin = need("CUSDT_ADMIN_PARTY");
 const suffix = admin.split("::")[1];
 const ALICE = `cusdt-alice::${suffix}`, DUST = `cusdt-dust::${suffix}`;
-const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.airdropasc.com";
+const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const token = await getToken();
 const auth = { method: "static", token };
 const sdk = await (await SDK.create({ auth, ledgerClientUrl: need("LEDGER_URL") })).extend({ token: { auth, registries: [REGISTRY], registryAuth: "none" } });

@@ -713,15 +713,18 @@ v2Acct : Party -> H2.Account
 v2Acct p = H2.Account with owner = Some p, provider = None, id = ""
 
 transferV2Cmd : World -> Time -> [Party] -> H2.Account -> H2.Account -> Decimal -> H2.InstrumentId -> [ContractId CusdtHolding] -> M.ExtraArgs -> Commands TI2.TransferInstructionResult
-transferV2Cmd w now acts s r a inst ins ex =
+transferV2Cmd w now acts s r a inst ins ex = transferV2CmdT w now (seconds (-30)) (hours 1) acts s r a inst ins ex
+
+transferV2CmdT : World -> Time -> RelTime -> RelTime -> [Party] -> H2.Account -> H2.Account -> Decimal -> H2.InstrumentId -> [ContractId CusdtHolding] -> M.ExtraArgs -> Commands TI2.TransferInstructionResult
+transferV2CmdT w now reqOff execOff acts s r a inst ins ex =
   exerciseCmd (toInterfaceContractId @TI2.TransferFactory w.tf) TI2.TransferFactory_Transfer with
     transfer = TI2.Transfer with
       sender = s
       receiver = r
       amount = a
       instrumentId = inst
-      requestedAt = addRelTime now (seconds (-30))
-      executeBefore = addRelTime now (hours 1)
+      requestedAt = addRelTime now reqOff
+      executeBefore = addRelTime now execOff
       inputHoldingCids = map toInterfaceContractId ins
       meta = M.emptyMetadata
     actors = acts
@@ -881,3 +884,46 @@ testV2ExpiryAndInputs = do
   submitMustFail w.bob (acceptV2 [w.bob] i)
   _ <- submit w.alice (withdrawV2 [w.alice] i)
   expectBalance (balance w w.alice) 10.0 "withdraw after the expiry works"
+
+-- found by the mutation run: the offer path fails on its own (the instruction needs the sender's signature), the DIRECT path does not.
+-- A receiver with a preapproval must not be able to spend somebody else's holding by naming himself in the actors.
+testV2DirectPathCannotSpendSomeoneElsesHolding : Script ()
+testV2DirectPathCannotSpendSomeoneElsesHolding = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  Some hD <- queryDisclosure w.admin h
+  adm <- submit w.admin do createCmd CusdtAdmin with admin = w.admin
+  pre <- submit w.admin do exerciseCmd adm CusdtAdmin_CreatePreapproval with receiver = w.bob
+  Some preD <- queryDisclosure w.admin pre
+  now <- getTime
+  let ctx = M.ExtraArgs with
+        context = M.ChoiceContext with values = TextMap.fromList [(preapprovalKey, M.AV_ContractId (coerceContractId pre))]
+        meta = M.emptyMetadata
+  submitMustFail (actAs w.bob <> disclose w.tfD <> disclose hD <> disclose preD)
+    (transferV2Cmd w now [w.bob] (v2Acct w.alice) (v2Acct w.bob) 10.0 (cusdtInstrumentIdV2 w.admin) [h] ctx)
+  expectBalance (balance w w.alice) 10.0 "alice keeps her money"
+  expectBalance (balance w w.bob) 0.0 "bob got nothing"
+  -- the owner can of course pay bob that way
+  _ <- submit (actAs w.alice <> disclose w.tfD <> disclose preD)
+    (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 10.0 (cusdtInstrumentIdV2 w.admin) [h] ctx)
+  expectBalance (balance w w.bob) 10.0 "the owner's own direct transfer works"
+
+testV2DatesAreChecked : Script ()
+testV2DatesAreChecked = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  now <- getTime
+  let go reqOff execOff = submitMustFail (actAs w.alice <> disclose w.tfD)
+        (transferV2CmdT w now reqOff execOff [w.alice] (v2Acct w.alice) (v2Acct w.bob) 1.0 (cusdtInstrumentIdV2 w.admin) [h] noExtra)
+  go (seconds 60) (hours 1)          -- requestedAt in the future
+  go (seconds (-30)) (seconds (-1))  -- executeBefore already passed
+  expectBalance (supplyAll w) 10.0 "nothing moved"
+
+testBurnMintPublicFetch : Script ()
+testBurnMintPublicFetch = do
+  (w, bf) <- bmSetup
+  Some bfD <- queryDisclosure w.admin bf
+  _ <- submit (actAs w.alice <> disclose bfD) do
+    exerciseCmd (toInterfaceContractId @BM.BurnMintFactory bf) BM.BurnMintFactory_PublicFetch with expectedAdmin = w.admin, actor = w.alice
+  submitMustFail (actAs w.alice <> disclose bfD) do
+    exerciseCmd (toInterfaceContractId @BM.BurnMintFactory bf) BM.BurnMintFactory_PublicFetch with expectedAdmin = w.bob, actor = w.alice

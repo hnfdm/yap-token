@@ -9,6 +9,7 @@ import DA.TextMap qualified as TextMap
 import CusdtToken
 import Splice.Api.Token.AllocationInstructionV1 qualified as AI
 import Splice.Api.Token.AllocationV1 qualified as A
+import Splice.Api.Token.BurnMintV1 qualified as BM
 import Splice.Api.Token.MetadataV1 qualified as M
 import Splice.Api.Token.TransferInstructionV1 qualified as TI
 
@@ -613,3 +614,76 @@ testDelegationExpiresOnItsOwn = do
   -- the same settlement still works with all three parties acting (window still open)
   _ <- submit (actAs [w.admin, w.alice, w.bob]) (executeAlloc alloc)
   expectBalance (balance w w.bob) 4.0 "paid without the delegation"
+
+-- ---------------------------------------------------------------------------------------------------------
+-- burn / mint (Splice.Api.Token.BurnMintV1)
+
+burnMintCmd : World -> ContractId CusdtBurnMintFactory -> Party -> InstrumentIdArg -> [ContractId CusdtHolding] -> [(Party, Decimal)] -> [Party] -> Commands BM.BurnMintFactory_BurnMintResult
+burnMintCmd w bf expAdmin inst ins outs actors =
+  exerciseCmd (toInterfaceContractId @BM.BurnMintFactory bf) BM.BurnMintFactory_BurnMint with
+    expectedAdmin = expAdmin
+    instrumentId = cusdtInstrumentId inst
+    inputHoldingCids = map toInterfaceContractId ins
+    outputs = [ BM.BurnMintOutput with owner = o, amount = a | (o, a) <- outs ]
+    extraActors = actors
+    extraArgs = noExtra
+
+type InstrumentIdArg = Party
+
+bmSetup : Script (World, ContractId CusdtBurnMintFactory)
+bmSetup = do
+  w <- setup
+  bf <- submit w.admin do createCmd CusdtBurnMintFactory with admin = w.admin
+  pure (w, bf)
+
+testBurnMintReshapeKeepsSupply : Script ()
+testBurnMintReshapeKeepsSupply = do
+  (w, bf) <- bmSetup
+  h <- mint w w.alice 10.0
+  r <- submit (actAs [w.admin, w.alice]) (burnMintCmd w bf w.admin w.admin [h] [(w.alice, 4.0), (w.alice, 6.0)] [w.alice])
+  assertMsg "two output holdings reported" (length r.outputCids == 2)
+  hs <- freeOf w w.alice
+  assertMsg "alice has exactly the two new holdings" (length hs == 2)
+  expectBalance (balance w w.alice) 10.0 "same total"
+  expectBalance (supplyAll w) 10.0 "supply unchanged"
+
+testBurnMintNetMintAndBurn : Script ()
+testBurnMintNetMintAndBurn = do
+  (w, bf) <- bmSetup
+  h <- mint w w.alice 10.0
+  -- pure mint: no inputs, nobody but the admin needs to act
+  _ <- submit w.admin (burnMintCmd w bf w.admin w.admin [] [(w.bob, 5.0)] [])
+  expectBalance (balance w w.bob) 5.0 "minted to bob without his consent (a credit)"
+  expectBalance (supplyAll w) 15.0 "supply grew by the mint"
+  -- pure burn of alice's holding, with alice as extra actor
+  _ <- submit (actAs [w.admin, w.alice]) (burnMintCmd w bf w.admin w.admin [h] [] [w.alice])
+  expectBalance (balance w w.alice) 0.0 "alice's holding burnt"
+  expectBalance (supplyAll w) 5.0 "supply shrank by the burn"
+
+testBurnMintGuards : Script ()
+testBurnMintGuards = do
+  (w, bf) <- bmSetup
+  h <- mint w w.alice 10.0
+  h2 <- mint w w.alice 5.0
+  let go expAdmin inst ins outs actors = submitMustFail (actAs (w.admin :: actors)) (burnMintCmd w bf expAdmin inst ins outs actors)
+  go w.admin w.admin [h] [(w.alice, 10.0)] []                       -- owner of the burnt holding did not consent
+  go w.admin w.admin [h] [(w.alice, 10.0)] [w.bob]                  -- the wrong party as extra actor
+  go w.bob w.admin [h] [(w.alice, 10.0)] [w.alice]                  -- wrong expectedAdmin
+  go w.admin w.bob [h] [(w.alice, 10.0)] [w.alice]                  -- instrument of another admin
+  go w.admin w.admin [h] [(w.alice, 0.0)] [w.alice]                 -- zero output
+  go w.admin w.admin [h] [(w.alice, -1.0)] [w.alice]                -- negative output
+  go w.admin w.admin [h] [(w.alice, 0.0000001)] [w.alice]           -- 7 decimals
+  go w.admin w.admin [] [] []                                       -- nothing at all
+  go w.admin w.admin [h, h] [(w.alice, 10.0)] [w.alice]             -- the same input twice
+  -- alice alone cannot use it: the admin always controls the choice
+  submitMustFail w.alice (burnMintCmd w bf w.admin w.admin [h2] [(w.alice, 5.0)] [w.alice])
+  expectBalance (supplyAll w) 15.0 "nothing moved"
+
+testBurnMintRefusesLockedInputs : Script ()
+testBurnMintRefusesLockedInputs = do
+  (w, bf) <- bmSetup
+  h <- mint w w.alice 10.0
+  _ <- doAllocate w w.alice w.bob "bm-lock" 4.0 [h]
+  [(l, _)] <- lockedOf w w.alice
+  submitMustFail (actAs [w.admin, w.alice]) (burnMintCmd w bf w.admin w.admin [l] [] [w.alice])
+  expectBalance (supplyAll w) 10.0 "locked funds untouched"

@@ -62,6 +62,15 @@ M = [
  ("delegation: receiver", '(v.allocation.transferLeg.receiver == d.receiver)', 'True', 1),
  ("delegation: settlement ref", '(v.allocation.settlement.settlementRef.id == d.settlementRefId)', 'True', 1),
  ("Execute needs sender too", 'controller executor', 'controller executor, sender', 1),
+ ("burnmint: publicFetch expectedAdmin", '(arg.expectedAdmin == admin)', 'True', 5),
+ ("burnmint: expectedAdmin", '(arg.expectedAdmin == admin)', 'True', 6),
+ ("burnmint: instrument", '(arg.instrumentId == cusdtInstrumentId admin)', 'True', 1),
+ ("burnmint: something to do", '(not (null arg.inputHoldingCids && null arg.outputs))', 'True', 1),
+ ("burnmint: input admin", '(h.admin == admin)', 'True', 2),
+ ("burnmint: input locked", '(h.lock == None)', 'True', 2),
+ ("burnmint: owner consent", '(h.owner `elem` arg.extraActors)', 'True', 1),
+ ("burnmint: output positive", '(o.amount > 0.0)', 'True', 1),
+ ("burnmint: output precision", 'assertPrecision "output amount" o.amount', 'pure ()', 1),
  ("Cancel needs sender too", 'controller executor', 'controller executor, sender', 2),
 ]
 

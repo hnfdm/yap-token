@@ -72,6 +72,18 @@ M = [
  ("burnmint: output positive", '(o.amount > 0.0)', 'True', 1),
  ("burnmint: output precision", 'assertPrecision "output amount" o.amount', 'pure ()', 1),
  ("burnmint: output context refused", '(TextMap.null o.context.values)', 'True', 1),
+ ("v2 transfer: sender must be an actor", '(sender `elem` arg.actors)', 'True', 1),
+ ("v2 accept: receiver must be an actor", '(transfer.receiver `elem` arg.actors)', 'True', 1),
+ ("v2 reject: receiver must be an actor", '(transfer.receiver `elem` arg.actors)', 'True', 2),
+ ("v2 withdraw: sender must be an actor", '(transfer.sender `elem` arg.actors)', 'True', 1),
+ ("v2 account: plain owner account", '(a.provider == None && a.id == "")', 'True', 1),
+ ("v2 transfer: instrument", '(t.instrumentId == cusdtInstrumentIdV2 admin)', 'True', 1),
+ ("v2 transfer: amount positive", '(t.amount > 0.0)', 'True', 2),
+ ("v2 transfer: inputs required", '(not (null t.inputHoldingCids))', 'True', 2),
+ ("v2 transfer: requestedAt in the past", '(t.requestedAt <= now)', 'True', 2),
+ ("v2 transfer: executeBefore in the future", '(t.executeBefore > now)', 'True', 2),
+ ("v2 preapproval: receiver", '(p.receiver == receiver)', 'True', 1),
+ ("v2 accept: expiry", '(now < transfer.executeBefore)', 'True', 2),
  ("Cancel needs sender too", 'controller executor', 'controller executor, sender', 2),
 ]
 

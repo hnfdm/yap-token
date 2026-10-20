@@ -21,6 +21,12 @@ const SUPPORTED_APIS = {
   "splice-api-token-allocation-v1": 1,
   "splice-api-token-allocation-instruction-v1": 1,
 };
+// Token Standard V2 (CIP-0112) transfers: routes always exist, but they are only advertised once the V2-capable DAR (cusdt-token >= 0.5.0) is live.
+const ENABLE_V2 = process.env.CUSDT_ENABLE_V2 === "1";
+if (ENABLE_V2) {
+  SUPPORTED_APIS["splice-api-token-holding-v2"] = 1;
+  SUPPORTED_APIS["splice-api-token-transfer-instruction-v2"] = 1;
+}
 
 const INSTRUMENT = {
   id: SYMBOL, name: "cUSDT (test)", symbol: SYMBOL, decimals: 6,
@@ -140,6 +146,35 @@ function send(res, status, data) {
 
 const emptyContext = { choiceContextData: { values: {} }, disclosedContracts: [] };
 
+// The factory answer is the same for V1 and V2: only the way the request names sender and receiver differs.
+async function transferFactoryAnswer(sender, receiver) {
+  const d = await findFactory();
+  if (sender === receiver)
+    return { factoryId: d.contractId, transferKind: "self",
+      choiceContext: { choiceContextData: { values: {} }, disclosedContracts: [d] } };
+  // A failing/capped preapproval lookup must not take transfers down: fall back to a plain offer.
+  let pre = null;
+  try { pre = await findPreapproval(receiver); }
+  catch (e) { console.error("[cusdt-registry] preapproval lookup failed, falling back to offer:", String(e.message).slice(0, 200)); }
+  if (pre)
+    return { factoryId: d.contractId, transferKind: "direct",
+      choiceContext: {
+        choiceContextData: { values: { [PREAPPROVAL_KEY]: { tag: "AV_ContractId", value: pre.contractId } } },
+        disclosedContracts: [d, pre],
+      } };
+  return { factoryId: d.contractId, transferKind: "offer",
+    choiceContext: { choiceContextData: { values: {} }, disclosedContracts: [d] } };
+}
+
+// V2 accounts: only plain owner accounts exist for cUSDT (owner set, no provider, default id).
+function plainOwner(acct, what) {
+  if (acct === null || typeof acct !== "object" || Array.isArray(acct)) throw new HttpError(400, what + " must be an account object");
+  if (typeof acct.owner !== "string" || !acct.owner) throw new HttpError(400, what + ".owner must be a party id string (admin-managed accounts are not supported)");
+  if ((acct.provider ?? null) !== null) throw new HttpError(400, what + ".provider is not supported");
+  if ((acct.id ?? "") !== "") throw new HttpError(400, what + ".id must be the empty default account id");
+  return acct.owner;
+}
+
 async function route(req, res) {
   const url = new URL(req.url ?? "/", "http://x");
   let p = url.pathname;
@@ -174,25 +209,24 @@ async function route(req, res) {
     if (ca.expectedAdmin !== ADMIN) throw new HttpError(400, "expectedAdmin does not match this registry");
     if (tr.instrumentId?.admin !== ADMIN || tr.instrumentId?.id !== SYMBOL)
       throw new HttpError(404, "unknown instrument");
-    const d = await findFactory();
     if (typeof tr.sender !== "string" || typeof tr.receiver !== "string" || !tr.receiver)
       throw new HttpError(400, "transfer.sender and transfer.receiver must be party id strings");
-    if (tr.sender === tr.receiver)
-      return send(res, 200, { factoryId: d.contractId, transferKind: "self",
-        choiceContext: { choiceContextData: { values: {} }, disclosedContracts: [d] } });
-    // A failing/capped preapproval lookup must not take transfers down: fall back to a plain offer.
-    let pre = null;
-    try { pre = await findPreapproval(tr.receiver); }
-    catch (e) { console.error("[cusdt-registry] preapproval lookup failed, falling back to offer:", String(e.message).slice(0, 200)); }
-    if (pre)
-      return send(res, 200, { factoryId: d.contractId, transferKind: "direct",
-        choiceContext: {
-          choiceContextData: { values: { [PREAPPROVAL_KEY]: { tag: "AV_ContractId", value: pre.contractId } } },
-          disclosedContracts: [d, pre],
-        } });
-    return send(res, 200, { factoryId: d.contractId, transferKind: "offer",
-      choiceContext: { choiceContextData: { values: {} }, disclosedContracts: [d] } });
+    return send(res, 200, await transferFactoryAnswer(tr.sender, tr.receiver));
   }
+  // transfer-instruction-v2 (Token Standard V2): no expectedAdmin, Account objects for sender and receiver
+  if (m === "POST" && p === "/registry/transfer-instruction/v2/transfer-factory") {
+    const b = await body(req);
+    const tr = b.choiceArguments?.transfer;
+    if (!tr || typeof tr !== "object" || Array.isArray(tr)) throw new HttpError(400, "choiceArguments.transfer required");
+    if (tr.instrumentId?.admin !== ADMIN || tr.instrumentId?.id !== SYMBOL)
+      throw new HttpError(404, "unknown instrument");
+    const sender = plainOwner(tr.sender, "transfer.sender");
+    const receiver = plainOwner(tr.receiver, "transfer.receiver");
+    return send(res, 200, await transferFactoryAnswer(sender, receiver));
+  }
+  const cc2 = p.match(/^\/registry\/transfer-instruction\/v2\/([^/]+)\/choice-contexts\/(accept|reject|withdraw)$/);
+  if (m === "POST" && cc2) return send(res, 200, emptyContext);
+
   // allocation-instruction-v1
   if (m === "POST" && p === "/registry/allocation-instruction/v1/allocation-factory") {
     const b = await body(req);

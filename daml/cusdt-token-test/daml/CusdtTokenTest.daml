@@ -10,8 +10,11 @@ import CusdtToken
 import Splice.Api.Token.AllocationInstructionV1 qualified as AI
 import Splice.Api.Token.AllocationV1 qualified as A
 import Splice.Api.Token.BurnMintV1 qualified as BM
+import Splice.Api.Token.HoldingV1 qualified as H
+import Splice.Api.Token.HoldingV2 qualified as H2
 import Splice.Api.Token.MetadataV1 qualified as M
 import Splice.Api.Token.TransferInstructionV1 qualified as TI
+import Splice.Api.Token.TransferInstructionV2 qualified as TI2
 
 -- ---------------------------------------------------------------------------------------------------------
 -- fixtures
@@ -702,3 +705,179 @@ testBurnMintRefusesOutputContext = do
       extraActors = [w.alice]
       extraArgs = noExtra
   expectBalance (supplyAll w) 10.0 "nothing moved"
+
+-- ---------------------------------------------------------------------------------------------------------
+-- Token Standard V2 (CIP-0112): the same templates also answer to the V2 interfaces
+
+v2Acct : Party -> H2.Account
+v2Acct p = H2.Account with owner = Some p, provider = None, id = ""
+
+transferV2Cmd : World -> Time -> [Party] -> H2.Account -> H2.Account -> Decimal -> H2.InstrumentId -> [ContractId CusdtHolding] -> M.ExtraArgs -> Commands TI2.TransferInstructionResult
+transferV2Cmd w now acts s r a inst ins ex =
+  exerciseCmd (toInterfaceContractId @TI2.TransferFactory w.tf) TI2.TransferFactory_Transfer with
+    transfer = TI2.Transfer with
+      sender = s
+      receiver = r
+      amount = a
+      instrumentId = inst
+      requestedAt = addRelTime now (seconds (-30))
+      executeBefore = addRelTime now (hours 1)
+      inputHoldingCids = map toInterfaceContractId ins
+      meta = M.emptyMetadata
+    actors = acts
+    extraArgs = ex
+
+offerV2 : World -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Script ()
+offerV2 w s r a ins = do
+  now <- getTime
+  _ <- submit (actAs s <> disclose w.tfD) (transferV2Cmd w now [s] (v2Acct s) (v2Acct r) a (cusdtInstrumentIdV2 w.admin) ins noExtra)
+  pure ()
+
+acceptV2 : [Party] -> ContractId CusdtTransferInstruction -> Commands TI2.TransferInstructionResult
+acceptV2 acts c = exerciseCmd (toInterfaceContractId @TI2.TransferInstruction c) TI2.TransferInstruction_Accept with actors = acts, extraArgs = noExtra
+
+rejectV2 : [Party] -> ContractId CusdtTransferInstruction -> Commands TI2.TransferInstructionResult
+rejectV2 acts c = exerciseCmd (toInterfaceContractId @TI2.TransferInstruction c) TI2.TransferInstruction_Reject with actors = acts, extraArgs = noExtra
+
+withdrawV2 : [Party] -> ContractId CusdtTransferInstruction -> Commands TI2.TransferInstructionResult
+withdrawV2 acts c = exerciseCmd (toInterfaceContractId @TI2.TransferInstruction c) TI2.TransferInstruction_Withdraw with actors = acts, extraArgs = noExtra
+
+testV2HoldingViewAndV1Coexist : Script ()
+testV2HoldingViewAndV1Coexist = do
+  w <- setup
+  _ <- mint w w.alice 7.0
+  [(_, Some v2)] <- queryInterface @H2.Holding w.alice
+  assertMsg "V2 account owner is alice" (v2.account.owner == Some w.alice)
+  assertMsg "V2 account has no provider and the default id" (v2.account.provider == None && v2.account.id == "")
+  assertMsg "V2 amount" (v2.amount == 7.0)
+  assertMsg "V2 instrument admin" (v2.instrumentId.admin == w.admin)
+  assertMsg "V2 holding is unlocked" (v2.lock == None)
+  [(_, Some v1)] <- queryInterface @H.Holding w.alice
+  assertMsg "the V1 view still works next to it" (v1.owner == w.alice && v1.amount == 7.0)
+
+testV2OfferAcceptRejectWithdraw : Script ()
+testV2OfferAcceptRejectWithdraw = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  offerV2 w w.alice w.bob 4.0 [h]
+  [(i, _)] <- pendingOffers w
+  [(_, Some tv)] <- queryInterface @TI2.TransferInstruction w.bob
+  assertMsg "V2 view: sender account" (tv.transfer.sender.owner == Some w.alice)
+  assertMsg "V2 view: receiver account" (tv.transfer.receiver.owner == Some w.bob)
+  assertMsg "V2 view: amount" (tv.transfer.amount == 4.0)
+  expectBalance (balance w w.alice) 6.0 "change stays with the sender while pending"
+  _ <- submit w.bob (acceptV2 [w.bob] i)
+  expectBalance (balance w w.bob) 4.0 "receiver holds 4"
+  ps <- pendingOffers w
+  assertMsg "the non-consuming V2 choice archived the instruction itself" (null ps)
+  -- reject returns the funds
+  hs <- freeOf w w.alice
+  offerV2 w w.alice w.bob 3.0 (map fst hs)
+  [(j, _)] <- pendingOffers w
+  _ <- submit w.bob (rejectV2 [w.bob] j)
+  expectBalance (balance w w.alice) 6.0 "reject returned the 3"
+  -- withdraw returns the funds
+  hs2 <- freeOf w w.alice
+  offerV2 w w.alice w.bob 2.0 (map fst hs2)
+  [(k, _)] <- pendingOffers w
+  _ <- submit w.alice (withdrawV2 [w.alice] k)
+  expectBalance (balance w w.alice) 6.0 "withdraw returned the 2"
+  expectBalance (supplyAll w) 10.0 "supply unchanged"
+
+-- the critical one: V2 lets the caller choose the actors, the holdings' only signatory is the admin
+testV2WrongActorsAreRefused : Script ()
+testV2WrongActorsAreRefused = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  Some hD <- queryDisclosure w.admin h
+  now <- getTime
+  -- bob tries to spend ALICE's holding (it is disclosed to him): the sender is not among the actors
+  submitMustFail (actAs w.bob <> disclose w.tfD <> disclose hD) (transferV2Cmd w now [w.bob] (v2Acct w.alice) (v2Acct w.bob) 5.0 (cusdtInstrumentIdV2 w.admin) [h] noExtra)
+  -- the same with the receiver pretending to be the sender's account owner
+  submitMustFail (actAs w.bob <> disclose w.tfD <> disclose hD) (transferV2Cmd w now [w.bob] (v2Acct w.bob) (v2Acct w.bob) 5.0 (cusdtInstrumentIdV2 w.admin) [h] noExtra)
+  expectBalance (supplyAll w) 10.0 "nothing moved"
+  offerV2 w w.alice w.bob 4.0 [h]
+  [(i, _)] <- pendingOffers w
+  submitMustFail w.alice (acceptV2 [w.alice] i)       -- the sender cannot accept
+  submitMustFail w.alice (rejectV2 [w.alice] i)       -- nor reject
+  submitMustFail w.bob (withdrawV2 [w.bob] i)         -- the receiver cannot withdraw
+  submitMustFail w.admin (acceptV2 [w.admin] i)
+  ps <- pendingOffers w
+  assertMsg "the instruction is untouched" (length ps == 1)
+
+testV2AccountAndInstrumentRules : Script ()
+testV2AccountAndInstrumentRules = do
+  w <- setup
+  admin2 <- allocateParty "admin2"
+  h <- mint w w.alice 10.0
+  now <- getTime
+  let go s r inst a = submitMustFail (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] s r a inst [h] noExtra)
+  let good = cusdtInstrumentIdV2 w.admin
+  go (v2Acct w.alice) (H2.Account with owner = Some w.bob, provider = Some w.admin, id = "") good 1.0   -- an account with a provider
+  go (v2Acct w.alice) (H2.Account with owner = Some w.bob, provider = None, id = "savings") good 1.0    -- a non-default account id
+  go (v2Acct w.alice) (H2.Account with owner = None, provider = None, id = "") good 1.0                 -- an admin-managed account
+  go (H2.Account with owner = None, provider = None, id = "") (v2Acct w.bob) good 1.0
+  go (v2Acct w.alice) (v2Acct w.bob) (cusdtInstrumentIdV2 admin2) 1.0                                  -- another admin's instrument
+  go (v2Acct w.alice) (v2Acct w.bob) good 0.0
+  go (v2Acct w.alice) (v2Acct w.bob) good (-1.0)
+  go (v2Acct w.alice) (v2Acct w.bob) good 0.0000001                                                   -- 7 decimals
+  go (v2Acct w.alice) (v2Acct w.bob) good 11.0                                                        -- more than the inputs
+  expectBalance (supplyAll w) 10.0 "nothing moved"
+
+testV2AndV1Interoperate : Script ()
+testV2AndV1Interoperate = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  -- offered through V2, accepted through V1
+  offerV2 w w.alice w.bob 3.0 [h]
+  [(i, _)] <- pendingOffers w
+  _ <- submit w.bob (acceptOffer i)
+  expectBalance (balance w w.bob) 3.0 "V2 offer accepted via V1"
+  -- offered through V1, accepted through V2
+  hs <- freeOf w w.alice
+  sendOffer w w.alice w.bob 2.0 (map fst hs)
+  [(j, _)] <- pendingOffers w
+  _ <- submit w.bob (acceptV2 [w.bob] j)
+  expectBalance (balance w w.bob) 5.0 "V1 offer accepted via V2"
+  expectBalance (supplyAll w) 10.0 "supply unchanged"
+
+testV2SelfAndDirectTransfer : Script ()
+testV2SelfAndDirectTransfer = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  h2 <- mint w w.alice 1.0
+  now <- getTime
+  _ <- submit (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.alice) 4.0 (cusdtInstrumentIdV2 w.admin) [h] noExtra)
+  ps <- pendingOffers w
+  assertMsg "a V2 self transfer completes at once" (null ps)
+  expectBalance (balance w w.alice) 11.0 "balance unchanged"
+  adm <- submit w.admin do createCmd CusdtAdmin with admin = w.admin
+  pre <- submit w.admin do exerciseCmd adm CusdtAdmin_CreatePreapproval with receiver = w.bob
+  Some preD <- queryDisclosure w.admin pre
+  let ctx = M.ExtraArgs with
+        context = M.ChoiceContext with values = TextMap.fromList [(preapprovalKey, M.AV_ContractId (coerceContractId pre))]
+        meta = M.emptyMetadata
+  hs <- freeOf w w.alice
+  _ <- submit (actAs w.alice <> disclose w.tfD <> disclose preD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 6.0 (cusdtInstrumentIdV2 w.admin) (map fst hs) ctx)
+  expectBalance (balance w w.bob) 6.0 "direct V2 transfer credited at once"
+  -- a preapproval for bob cannot pay somebody else
+  hs2 <- freeOf w w.alice
+  submitMustFail (actAs w.alice <> disclose w.tfD <> disclose preD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.admin) 1.0 (cusdtInstrumentIdV2 w.admin) (map fst hs2) ctx)
+  _ <- pure h2
+  pure ()
+
+testV2ExpiryAndInputs : Script ()
+testV2ExpiryAndInputs = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  hb <- mint w w.bob 5.0
+  now <- getTime
+  -- somebody else's holding, and no inputs at all
+  submitMustFail (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 1.0 (cusdtInstrumentIdV2 w.admin) [hb] noExtra)
+  submitMustFail (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 1.0 (cusdtInstrumentIdV2 w.admin) [] noExtra)
+  offerV2 w w.alice w.bob 4.0 [h]
+  [(i, _)] <- pendingOffers w
+  passTime (hours 2)
+  submitMustFail w.bob (acceptV2 [w.bob] i)
+  _ <- submit w.alice (withdrawV2 [w.alice] i)
+  expectBalance (balance w w.alice) 10.0 "withdraw after the expiry works"

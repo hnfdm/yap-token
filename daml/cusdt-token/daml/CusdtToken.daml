@@ -5,13 +5,16 @@
 module CusdtToken where
 
 import DA.Foldable (forA_)
+import DA.Map qualified as Map
 import DA.TextMap qualified as TextMap
 import Splice.Api.Token.AllocationInstructionV1 qualified as AI
 import Splice.Api.Token.AllocationV1 qualified as A
 import Splice.Api.Token.BurnMintV1 qualified as BM
 import Splice.Api.Token.HoldingV1 qualified as H
+import Splice.Api.Token.HoldingV2 qualified as H2
 import Splice.Api.Token.MetadataV1 qualified as M
 import Splice.Api.Token.TransferInstructionV1 qualified as TI
+import Splice.Api.Token.TransferInstructionV2 qualified as TI2
 
 cusdtSymbol : Text
 cusdtSymbol = "cUSDT"
@@ -36,6 +39,37 @@ senderMeta sender = M.Metadata with
 assertPrecision : Text -> Decimal -> Update ()
 assertPrecision what x = assertMsg (what <> " has more than 6 decimals") (roundBankers 6 x == x)
 
+-- Token Standard V2 helpers ---------------------------------------------------------------------------------
+-- V2 addresses holdings by Account (owner, provider, id). cUSDT only has plain owner accounts: no provider, default id.
+-- Accounts with owner = None (the admin-managed mint/burn accounts) are not used: the issuer mints with CusdtAdmin_Mint / BurnMint.
+cusdtInstrumentIdV2 : Party -> H2.InstrumentId
+cusdtInstrumentIdV2 admin = H2.InstrumentId with admin = admin, id = cusdtSymbol
+
+v2Account : Party -> H2.Account
+v2Account p = H2.Account with owner = Some p, provider = None, id = ""
+
+v2Lock : H.Lock -> H2.Lock
+v2Lock l = H2.Lock with holders = l.holders, expiresAt = l.expiresAt, expiresAfter = l.expiresAfter, context = l.context
+
+accountOwner : Text -> H2.Account -> Update Party
+accountOwner what a = do
+  assertMsg (what <> " must be a plain owner account (no provider, default id)") (a.provider == None && a.id == "")
+  case a.owner of
+    Some p -> pure p
+    None -> abort (what <> " account must have an owner (admin-managed accounts are not supported)")
+
+v2Completed : [ContractId H2.Holding] -> [ContractId H2.Holding] -> TI2.TransferInstructionResult
+v2Completed receiverCids changeCids = TI2.TransferInstructionResult with
+  output = TI2.TransferInstructionResult_Completed with receiverHoldingCids = receiverCids
+  senderChangeCids = changeCids
+  meta = M.emptyMetadata
+
+v2Failed : [ContractId H2.Holding] -> TI2.TransferInstructionResult
+v2Failed changeCids = TI2.TransferInstructionResult with
+  output = TI2.TransferInstructionResult_Failed
+  senderChangeCids = changeCids
+  meta = M.emptyMetadata
+
 lockHolders : Optional H.Lock -> [Party]
 lockHolders None = []
 lockHolders (Some l) = l.holders
@@ -56,7 +90,11 @@ failed changeCids = TI.TransferInstructionResult with
 -- Every input must be an unlocked cUSDT holding of `sender`. Used by transfers and allocations.
 spendInputs : Party -> Party -> Decimal -> [ContractId H.Holding] -> Update [ContractId H.Holding]
 spendInputs admin sender amount inputCidsI = do
-  let inputCids : [ContractId CusdtHolding] = map fromInterfaceContractId inputCidsI
+  change <- spendInputsT admin sender amount (map fromInterfaceContractId inputCidsI)
+  pure (map toInterfaceContractId change)
+
+spendInputsT : Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Update [ContractId CusdtHolding]
+spendInputsT admin sender amount inputCids = do
   inputs <- forA inputCids fetch
   forA_ inputs $ \h -> do
     assertMsg "input admin mismatch" (h.admin == admin)
@@ -69,7 +107,7 @@ spendInputs admin sender amount inputCidsI = do
   if change > 0.0
     then do
       c <- create CusdtHolding with admin, owner = sender, amount = change, lock = None
-      pure [toInterfaceContractId c]
+      pure [c]
     else pure []
 
 -- Unlock: archive a locked holding and give the same amount back to its owner, unlocked.
@@ -100,6 +138,14 @@ template CusdtHolding
         instrumentId = cusdtInstrumentId admin
         amount = amount
         lock = lock
+        meta = M.emptyMetadata
+
+    interface instance H2.Holding for CusdtHolding where
+      view = H2.HoldingView with
+        account = v2Account owner
+        instrumentId = cusdtInstrumentIdV2 admin
+        amount = amount
+        lock = fmap v2Lock lock
         meta = M.emptyMetadata
 
     choice CusdtHolding_Split : (ContractId CusdtHolding, ContractId CusdtHolding)
@@ -231,6 +277,67 @@ template CusdtTransferFactory
                   senderChangeCids = changeCids
                   meta = M.emptyMetadata
 
+    -- V2: no expectedAdmin, the controllers are a free list of actors. The factory therefore checks everything itself;
+    -- above all that the SENDER is among the actors, because the holdings' only signatory is the admin.
+    interface instance TI2.TransferFactory for CusdtTransferFactory where
+      view = TI2.TransferFactoryView with admin = admin, meta = M.emptyMetadata
+
+      transferFactory_transferExtraObservers _arg = []
+
+      transferFactory_publicFetchImpl _self _arg =
+        pure (TI2.TransferFactoryView with admin = admin, meta = M.emptyMetadata)
+
+      transferFactory_transferImpl _self arg = do
+        let t = arg.transfer
+        sender <- accountOwner "sender" t.sender
+        receiver <- accountOwner "receiver" t.receiver
+        assertMsg "the sender must be among the actors" (sender `elem` arg.actors)
+        assertMsg "wrong instrument" (t.instrumentId == cusdtInstrumentIdV2 admin)
+        assertMsg "amount must be positive" (t.amount > 0.0)
+        assertPrecision "amount" t.amount
+        assertMsg "inputHoldingCids required" (not (null t.inputHoldingCids))
+        now <- getTime
+        assertMsg "requestedAt must be in the past" (t.requestedAt <= now)
+        assertMsg "executeBefore must be in the future" (t.executeBefore > now)
+
+        changeT <- spendInputsT admin sender t.amount (map fromInterfaceContractId t.inputHoldingCids)
+        let changeCids : [ContractId H2.Holding] = map toInterfaceContractId changeT
+
+        let preapprovalCid : Optional (ContractId CusdtTransferPreapproval) =
+              case TextMap.lookup preapprovalKey arg.extraArgs.context.values of
+                Some (M.AV_ContractId anyCid) -> Some (coerceContractId anyCid)
+                _ -> None
+
+        if sender == receiver
+          then do
+            rcv <- create CusdtHolding with admin, owner = receiver, amount = t.amount, lock = None
+            pure (v2Completed [toInterfaceContractId rcv] changeCids)
+          else do
+            case preapprovalCid of
+              Some pcid -> do
+                p <- fetch pcid
+                assertMsg "preapproval admin mismatch" (p.admin == admin)
+                assertMsg "preapproval is for a different receiver" (p.receiver == receiver)
+                rcv <- create CusdtHolding with admin, owner = receiver, amount = t.amount, lock = None
+                pure (v2Completed [toInterfaceContractId rcv] changeCids)
+              None -> do
+                ti <- create CusdtTransferInstruction with
+                  admin
+                  transfer = TI.Transfer with
+                    sender = sender
+                    receiver = receiver
+                    amount = t.amount
+                    instrumentId = cusdtInstrumentId admin
+                    requestedAt = t.requestedAt
+                    executeBefore = t.executeBefore
+                    inputHoldingCids = []
+                    meta = t.meta
+                pure TI2.TransferInstructionResult with
+                  output = TI2.TransferInstructionResult_Pending with
+                    transferInstructionCid = toInterfaceContractId ti
+                  senderChangeCids = changeCids
+                  meta = M.emptyMetadata
+
 -- Transfer instruction (receiver must accept) -------------------------------
 
 template CusdtTransferInstruction
@@ -269,6 +376,53 @@ template CusdtTransferInstruction
       -- No registry-internal workflow steps exist for cUSDT.
       transferInstruction_updateImpl _self _arg =
         abort "cUSDT transfer instructions have no registry-internal update steps"
+
+    -- V2 choices are NON-consuming: the implementations archive the instruction themselves, and check that the right party acts.
+    interface instance TI2.TransferInstruction for CusdtTransferInstruction where
+      view = TI2.TransferInstructionView with
+        originalInstructionCid = None
+        transfer = TI2.Transfer with
+          sender = v2Account transfer.sender
+          receiver = v2Account transfer.receiver
+          amount = transfer.amount
+          instrumentId = cusdtInstrumentIdV2 admin
+          requestedAt = transfer.requestedAt
+          executeBefore = transfer.executeBefore
+          inputHoldingCids = []
+          meta = transfer.meta
+        expiresAt = Some transfer.executeBefore
+        availableActions = Map.fromList
+          [ (TI2.TIA_Accept, [[transfer.receiver]])
+          , (TI2.TIA_Reject, [[transfer.receiver]])
+          , (TI2.TIA_Withdraw, [[transfer.sender]]) ]
+        meta = M.emptyMetadata
+
+      transferInstruction_acceptExtraObservers _arg = []
+      transferInstruction_rejectExtraObservers _arg = []
+      transferInstruction_withdrawExtraObservers _arg = []
+
+      transferInstruction_acceptImpl selfCid arg = do
+        assertMsg "the receiver must be among the actors" (transfer.receiver `elem` arg.actors)
+        now <- getTime
+        assertMsg "transfer expired" (now < transfer.executeBefore)
+        archive (fromInterfaceContractId @CusdtTransferInstruction selfCid)
+        h <- create CusdtHolding with
+          admin, owner = transfer.receiver, amount = transfer.amount, lock = None
+        pure (v2Completed [toInterfaceContractId h] [])
+
+      transferInstruction_rejectImpl selfCid arg = do
+        assertMsg "the receiver must be among the actors" (transfer.receiver `elem` arg.actors)
+        archive (fromInterfaceContractId @CusdtTransferInstruction selfCid)
+        h <- create CusdtHolding with
+          admin, owner = transfer.sender, amount = transfer.amount, lock = None
+        pure (v2Failed [toInterfaceContractId h])
+
+      transferInstruction_withdrawImpl selfCid arg = do
+        assertMsg "the sender must be among the actors" (transfer.sender `elem` arg.actors)
+        archive (fromInterfaceContractId @CusdtTransferInstruction selfCid)
+        h <- create CusdtHolding with
+          admin, owner = transfer.sender, amount = transfer.amount, lock = None
+        pure (v2Failed [toInterfaceContractId h])
 
 -- Allocation (atomic settlement) ----------------------------------------------
 

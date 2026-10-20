@@ -71,6 +71,7 @@ M = [
  ("burnmint: owner consent", '(h.owner `elem` arg.extraActors)', 'True', 1),
  ("burnmint: output positive", '(o.amount > 0.0)', 'True', 1),
  ("burnmint: output precision", 'assertPrecision "output amount" o.amount', 'pure ()', 1),
+ ("burnmint: output context refused", '(TextMap.null o.context.values)', 'True', 1),
  ("Cancel needs sender too", 'controller executor', 'controller executor, sender', 2),
 ]
 

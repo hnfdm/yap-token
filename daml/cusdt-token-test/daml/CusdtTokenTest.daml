@@ -624,7 +624,7 @@ burnMintCmd w bf expAdmin inst ins outs actors =
     expectedAdmin = expAdmin
     instrumentId = cusdtInstrumentId inst
     inputHoldingCids = map toInterfaceContractId ins
-    outputs = [ BM.BurnMintOutput with owner = o, amount = a | (o, a) <- outs ]
+    outputs = [ BM.BurnMintOutput with owner = o, amount = a, context = M.ChoiceContext with values = TextMap.empty | (o, a) <- outs ]
     extraActors = actors
     extraArgs = noExtra
 
@@ -687,3 +687,18 @@ testBurnMintRefusesLockedInputs = do
   [(l, _)] <- lockedOf w w.alice
   submitMustFail (actAs [w.admin, w.alice]) (burnMintCmd w bf w.admin w.admin [l] [] [w.alice])
   expectBalance (supplyAll w) 10.0 "locked funds untouched"
+
+testBurnMintRefusesOutputContext : Script ()
+testBurnMintRefusesOutputContext = do
+  (w, bf) <- bmSetup
+  h <- mint w w.alice 10.0
+  let ctx = M.ChoiceContext with values = TextMap.fromList [("lock", M.AV_Bool True)]
+  submitMustFail (actAs [w.admin, w.alice]) do
+    exerciseCmd (toInterfaceContractId @BM.BurnMintFactory bf) BM.BurnMintFactory_BurnMint with
+      expectedAdmin = w.admin
+      instrumentId = cusdtInstrumentId w.admin
+      inputHoldingCids = [toInterfaceContractId h]
+      outputs = [BM.BurnMintOutput with owner = w.alice, amount = 10.0, context = ctx]
+      extraActors = [w.alice]
+      extraArgs = noExtra
+  expectBalance (supplyAll w) 10.0 "nothing moved"

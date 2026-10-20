@@ -476,6 +476,7 @@ template CusdtBurnMintFactory
         forA_ arg.outputs $ \o -> do
           assertMsg "output amount must be positive" (o.amount > 0.0)
           assertPrecision "output amount" o.amount
+          assertMsg "output context is not supported" (TextMap.null o.context.values)
         forA_ inputCids archive
         created <- forA arg.outputs $ \o ->
           create CusdtHolding with admin, owner = o.owner, amount = o.amount, lock = None

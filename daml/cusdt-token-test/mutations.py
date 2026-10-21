@@ -92,6 +92,17 @@ M = [
  ("unlock early: controller is the owner (wrong)", 'controller lockHolders lock', 'controller owner', 1),
  ("unlock expired: must be expired", '(lock /= None && not (lockActive now lock))', 'True', 1),
  ("discard allocation: window passed", '(now >= allocation.settlement.settleBefore)', 'True', 1),
+ ("vesting: nothing before the cliff", '  | now < cliff = 0.0', '  | False = 0.0', 1),
+ ("vesting: everything after the end", '  | now >= finish = total', '  | False = total', 1),
+ ("vesting: linear formula", 'total * intToDecimal elapsed / intToDecimal duration', 'total * intToDecimal duration / intToDecimal duration', 1),
+ ("vesting revoke: revocable only", 'assertMsg "this vesting is not revocable" revocable', 'assertMsg "this vesting is not revocable" True', 1),
+ ("vesting close: only after the end", '(now >= finish)', 'True', 1),
+ ("vesting grant: precision", 'assertPrecision "vesting amount" amount', 'pure ()', 1),
+ ("vesting grant: finish in the future", '(finish > now)', 'True', 1),
+ ("vesting: schedule sanity (ensure)", 'start < finish && start <= cliff && cliff <= finish', 'True', 1),
+ ("vesting revoke: unvested goes to the admin", 'owner = admin, amount = unvested', 'owner = beneficiary, amount = unvested', 1),
+ ("vesting claim: remainder stays locked", 'amount = remaining, lock = Some (vestingLock admin finish)', 'amount = remaining, lock = None', 1),
+ ("vesting lock: expires at the end", '  expiresAt = Some finish', '  expiresAt = None', 1),
  ("Cancel needs sender too", 'controller executor', 'controller executor, sender', 2),
 ]
 

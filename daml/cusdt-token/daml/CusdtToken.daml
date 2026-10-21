@@ -5,6 +5,7 @@
 module CusdtToken where
 
 import DA.Foldable (forA_)
+import DA.Time (subTime, convertRelTimeToMicroseconds)
 import DA.Map qualified as Map
 import DA.Text qualified as Text
 import DA.TextMap qualified as TextMap
@@ -265,6 +266,24 @@ template CusdtAdmin
       controller admin
       do
         create CusdtTransferPreapproval with admin, receiver
+
+    -- Issues new tokens that vest linearly for `beneficiary` (see CusdtVesting).
+    nonconsuming choice CusdtAdmin_GrantVesting : ContractId CusdtVesting
+      with
+        beneficiary : Party
+        amount      : Decimal
+        start       : Time
+        cliff       : Time
+        finish      : Time
+        revocable   : Bool
+      controller admin
+      do
+        now <- getTime
+        assertMsg "vesting amount must be positive" (amount > 0.0)
+        assertPrecision "vesting amount" amount
+        assertMsg "finish must be in the future" (finish > now)
+        lockedCid <- create CusdtHolding with admin, owner = beneficiary, amount, lock = Some (vestingLock admin finish)
+        create CusdtVesting with admin, beneficiary, total = amount, claimed = 0.0, start, cliff, finish, revocable, lockedCid
 
 -- Preapproval ----------------------------------------------------------------
 
@@ -705,3 +724,100 @@ template CusdtBurnMintFactory
         created <- forA arg.outputs $ \o ->
           create CusdtHolding with admin, owner = o.owner, amount = o.amount, lock = None
         pure BM.BurnMintFactory_BurnMintResult with outputCids = map toInterfaceContractId created
+
+-- Linear vesting -----------------------------------------------------------------------------------------------
+--
+-- The issuer grants tokens that are released linearly between `start` and `finish` (nothing before `cliff`; at the cliff the share
+-- elapsed since `start` becomes claimable, so a cliff does not restart the clock). The unreleased remainder is an ordinary LOCKED
+-- CusdtHolding of the beneficiary (lock holder = admin, expiring at `finish`), so wallets show it as locked balance; the CusdtVesting
+-- contract only keeps the schedule. The beneficiary claims what has vested at any time; a revocable grant can be revoked by the admin,
+-- which pays the vested part to the beneficiary and returns the unvested part to the admin.
+--
+-- Trust note: the admin is the only signatory of every holding, so it can still Archive a vesting holding. "Locked" and "vested" mean
+-- what THIS CONTRACT enforces, not a guarantee against the issuer.
+
+vestingLockPrefix : Text
+vestingLockPrefix = "cusdt/vesting: "
+
+vestingLock : Party -> Time -> H.Lock
+vestingLock admin finish = H.Lock with
+  holders = admin :: []
+  expiresAt = Some finish
+  expiresAfter = None
+  context = Some (vestingLockPrefix <> "linear vesting, fully released at the end")
+
+-- rounds down to the 6 decimals of cUSDT
+floorMicro : Decimal -> Decimal
+floorMicro x = intToDecimal (truncate (x * 1000000.0)) / 1000000.0
+
+-- how much of `total` has vested at `now`
+vestedAmount : Time -> Time -> Time -> Time -> Decimal -> Decimal
+vestedAmount now start cliff finish total
+  | now < cliff = 0.0
+  | now >= finish = total
+  | otherwise =
+      let elapsed = convertRelTimeToMicroseconds (subTime now start)
+          duration = convertRelTimeToMicroseconds (subTime finish start)
+      in floorMicro (total * intToDecimal elapsed / intToDecimal duration)
+
+template CusdtVesting
+  with
+    admin       : Party
+    beneficiary : Party
+    total       : Decimal
+    claimed     : Decimal
+    start       : Time
+    cliff       : Time
+    finish      : Time
+    revocable   : Bool
+    lockedCid   : ContractId CusdtHolding
+  where
+    signatory admin
+    observer beneficiary
+    ensure total > 0.0 && claimed >= 0.0 && claimed < total && start < finish && start <= cliff && cliff <= finish
+
+    -- The beneficiary takes everything that has vested and not been claimed yet.
+    choice CusdtVesting_Claim : (ContractId CusdtHolding, Optional (ContractId CusdtVesting))
+      controller beneficiary
+      do
+        now <- getTime
+        let releasable = vestedAmount now start cliff finish total - claimed
+        assertMsg "nothing has vested yet" (releasable > 0.0)
+        locked <- fetch lockedCid
+        assertMsg "the locked holding does not match the schedule" (locked.amount == total - claimed)
+        archive lockedCid
+        released <- create CusdtHolding with admin, owner = beneficiary, amount = releasable, lock = None
+        let remaining = total - claimed - releasable
+        if remaining > 0.0
+          then do
+            newLocked <- create CusdtHolding with admin, owner = beneficiary, amount = remaining, lock = Some (vestingLock admin finish)
+            v <- create this with claimed = claimed + releasable, lockedCid = newLocked
+            pure (released, Some v)
+          else pure (released, None)
+
+    -- Admin only, and only for a revocable grant: the vested part goes to the beneficiary, the unvested part back to the admin.
+    choice CusdtVesting_Revoke : (Optional (ContractId CusdtHolding), Optional (ContractId CusdtHolding))
+      controller admin
+      do
+        assertMsg "this vesting is not revocable" revocable
+        now <- getTime
+        let vested = vestedAmount now start cliff finish total
+        let releasable = vested - claimed
+        let unvested = total - vested
+        archive lockedCid
+        toBeneficiary <- if releasable > 0.0
+          then fmap Some (create CusdtHolding with admin, owner = beneficiary, amount = releasable, lock = None)
+          else pure None
+        toAdmin <- if unvested > 0.0
+          then fmap Some (create CusdtHolding with admin, owner = admin, amount = unvested, lock = None)
+          else pure None
+        pure (toBeneficiary, toAdmin)
+
+    -- After the end the lock has expired, so the beneficiary may already have spent the holding and a claim could fail on the missing
+    -- holding: the beneficiary can always drop the finished schedule.
+    choice CusdtVesting_Close : ()
+      controller beneficiary
+      do
+        now <- getTime
+        assertMsg "the vesting has not finished yet" (now >= finish)
+        pure ()

@@ -1035,3 +1035,149 @@ testAllocationLockCannotBeReleasedEarly = do
   submitMustFail w.admin do exerciseCmd l CusdtHolding_UnlockEarly                          -- the executor holds the lock, but it is not voluntary
   submitMustFail w.alice do exerciseCmd l CusdtHolding_UnlockEarly
   expectBalance (supplyAll w) 10.0 "nothing moved"
+
+-- ---------------------------------------------------------------------------------------------------------
+-- linear vesting
+
+vestAdmin : World -> Script (ContractId CusdtAdmin)
+vestAdmin w = submit w.admin do createCmd CusdtAdmin with admin = w.admin
+
+-- 100 cUSDT for bob, linear over 10 days from now, cliff = start unless given
+grantVest : World -> ContractId CusdtAdmin -> Party -> Time -> RelTime -> RelTime -> Bool -> Script (ContractId CusdtVesting)
+grantVest w adm who now cliffAfter finishAfter rev = submit w.admin do
+  exerciseCmd adm CusdtAdmin_GrantVesting with
+    beneficiary = who
+    amount = 100.0
+    start = now
+    cliff = addRelTime now cliffAfter
+    finish = addRelTime now finishAfter
+    revocable = rev
+
+testVestingGrantLocksTheTokens : Script ()
+testVestingGrantLocksTheTokens = do
+  w <- setup
+  adm <- vestAdmin w
+  now <- getTime
+  v <- grantVest w adm w.bob now (seconds 0) (days 10) True
+  expectBalance (balance w w.bob) 0.0 "nothing is free yet"
+  [(l, h)] <- lockedOf w w.bob
+  assertMsg "the whole grant sits in one locked holding" (h.amount == 100.0 && h.owner == w.bob)
+  expectBalance (supplyAll w) 100.0 "the grant is new supply"
+  -- the locked remainder cannot be touched by anybody
+  submitMustFail w.bob do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0
+  submitMustFail w.bob do exerciseCmd l CusdtHolding_Burn
+  submitMustFail w.bob do exerciseCmd l CusdtHolding_UnlockEarly
+  submitMustFail w.admin do exerciseCmd l CusdtHolding_UnlockEarly            -- the admin holds the lock but it is not a voluntary one
+  submitMustFail (actAs w.bob <> disclose w.tfD) (transferCmd w now w.bob w.alice 1.0 [l])
+  -- the V2 view shows it as locked, with the admin as lock holder
+  vs <- queryInterface @H2.Holding w.bob
+  assertMsg "V2 view: locked by the admin" (not (null [ () | (_, Some hv) <- vs, Some lk <- [hv.lock], lk.holders == [w.admin] ]))
+  _ <- pure v
+  pure ()
+
+testVestingNothingBeforeTheCliff : Script ()
+testVestingNothingBeforeTheCliff = do
+  w <- setup
+  adm <- vestAdmin w
+  now <- getTime
+  v <- grantVest w adm w.bob now (days 5) (days 10) True
+  submitMustFail w.bob do exerciseCmd v CusdtVesting_Claim
+  passTime (days 4)
+  submitMustFail w.bob do exerciseCmd v CusdtVesting_Claim
+  passTime (days 1)                                                             -- the cliff: the share elapsed since the start (5 of 10 days) is released
+  (rel, _) <- submit w.bob do exerciseCmd v CusdtVesting_Claim
+  expectBalance (balance w w.bob) 50.0 "half is released at the cliff"
+  _ <- pure rel
+  pure ()
+
+testVestingIsLinear : Script ()
+testVestingIsLinear = do
+  w <- setup
+  adm <- vestAdmin w
+  now <- getTime
+  v0 <- grantVest w adm w.bob now (seconds 0) (days 10) True
+  submitMustFail w.alice do exerciseCmd v0 CusdtVesting_Claim                    -- only the beneficiary
+  submitMustFail w.admin do exerciseCmd v0 CusdtVesting_Claim
+  passTime (days 1)
+  (_, Some v1) <- submit w.bob do exerciseCmd v0 CusdtVesting_Claim
+  expectBalance (balance w w.bob) 10.0 "1 day of 10 -> 10"
+  submitMustFail w.bob do exerciseCmd v1 CusdtVesting_Claim                      -- nothing new has vested
+  locked1 <- lockedOf w w.bob
+  assertMsg "the remainder is one locked holding of 90" ([ h.amount | (_, h) <- locked1 ] == [90.0])
+  passTime (days 4)
+  (_, Some v2) <- submit w.bob do exerciseCmd v1 CusdtVesting_Claim
+  expectBalance (balance w w.bob) 50.0 "5 days of 10 -> 50 in total"
+  passTime (days 6)                                                               -- past the end
+  (_, rest) <- submit w.bob do exerciseCmd v2 CusdtVesting_Claim
+  assertMsg "the schedule is finished" (rest == None)
+  expectBalance (balance w w.bob) 100.0 "everything released"
+  locked2 <- lockedOf w w.bob
+  assertMsg "nothing stays locked" (null locked2)
+  expectBalance (supplyAll w) 100.0 "supply unchanged by the claims"
+
+testVestingRevoke : Script ()
+testVestingRevoke = do
+  w <- setup
+  adm <- vestAdmin w
+  now <- getTime
+  v <- grantVest w adm w.bob now (seconds 0) (days 10) True
+  passTime (days 4)
+  submitMustFail w.bob do exerciseCmd v CusdtVesting_Revoke                      -- only the admin
+  _ <- submit w.admin do exerciseCmd v CusdtVesting_Revoke
+  expectBalance (balance w w.bob) 40.0 "the vested part stays with the beneficiary"
+  expectBalance (balance w w.admin) 60.0 "the unvested part returns to the admin"
+  vs <- query @CusdtVesting w.admin
+  assertMsg "the schedule is gone" (null vs)
+  locked <- lockedOf w w.bob
+  assertMsg "nothing stays locked" (null locked)
+  expectBalance (supplyAll w) 100.0 "supply unchanged"
+  -- a grant that is not revocable cannot be revoked
+  v2 <- grantVest w adm w.alice now (seconds 0) (days 10) False
+  submitMustFail w.admin do exerciseCmd v2 CusdtVesting_Revoke
+
+testVestingClosedAfterTheEnd : Script ()
+testVestingClosedAfterTheEnd = do
+  w <- setup
+  adm <- vestAdmin w
+  now <- getTime
+  v <- grantVest w adm w.bob now (seconds 0) (days 10) True
+  submitMustFail w.bob do exerciseCmd v CusdtVesting_Close                        -- not finished
+  passTime (days 11)
+  [(l, _)] <- lockedOf w w.bob
+  sendOffer w w.bob w.alice 1.0 [l]                                               -- after the end the lock has expired: the holding is spendable
+  submitMustFail w.bob do exerciseCmd v CusdtVesting_Claim                        -- ... so the schedule can no longer pay out
+  submitMustFail w.alice do exerciseCmd v CusdtVesting_Close                      -- only the beneficiary
+  _ <- submit w.bob do exerciseCmd v CusdtVesting_Close
+  vs <- query @CusdtVesting w.admin
+  assertMsg "the schedule is gone" (null vs)
+  expectBalance (supplyAll w) 100.0 "supply unchanged"
+
+testVestingGrantGuards : Script ()
+testVestingGrantGuards = do
+  w <- setup
+  adm <- vestAdmin w
+  now <- getTime
+  let go amt st cl fin = submitMustFail w.admin do
+        exerciseCmd adm CusdtAdmin_GrantVesting with
+          beneficiary = w.bob
+          amount = amt
+          start = addRelTime now st
+          cliff = addRelTime now cl
+          finish = addRelTime now fin
+          revocable = True
+  go 0.0 (seconds 0) (seconds 0) (days 1)                -- zero
+  go (-5.0) (seconds 0) (seconds 0) (days 1)             -- negative
+  go 0.0000001 (seconds 0) (seconds 0) (days 1)          -- 7 decimals
+  go 10.0 (days 1) (days 1) (days 1)                     -- finish = start
+  go 10.0 (seconds 0) (seconds (-1)) (days 1)            -- cliff before start
+  go 10.0 (seconds 0) (days 2) (days 1)                  -- cliff after the end
+  go 10.0 (days (-3)) (days (-3)) (days (-1))            -- already over
+  submitMustFail w.bob do                                  -- only the admin issues
+    exerciseCmd adm CusdtAdmin_GrantVesting with
+      beneficiary = w.bob
+      amount = 10.0
+      start = now
+      cliff = now
+      finish = addRelTime now (days 1)
+      revocable = True
+  expectBalance (supplyAll w) 0.0 "nothing was issued"

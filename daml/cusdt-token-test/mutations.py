@@ -84,7 +84,7 @@ M = [
  ("v2 transfer: executeBefore in the future", '(t.executeBefore > now)', 'True', 2),
  ("v2 preapproval: receiver", '(p.receiver == receiver)', 'True', 1),
  ("v2 accept: expiry", '(now < transfer.executeBefore)', 'True', 2),
- ("lock: expiry honoured", '      Some t -> now < t', '      Some t -> True', 1),
+ ("lock: expiry honoured", '  Some t -> now < t', '  Some t -> True', 1),
  ("lock: not already locked", 'assertMsg "holding is already locked" (not (lockActive now lock))', 'assertMsg "holding is already locked" True', 1),
  ("lock: expiresAt in the future", '(expiresAt > now)', 'True', 1),
  ("lock: owner not a holder", '(not (owner `elem` holders))', 'True', 1),

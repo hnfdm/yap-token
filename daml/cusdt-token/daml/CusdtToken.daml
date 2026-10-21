@@ -6,6 +6,7 @@ module CusdtToken where
 
 import DA.Foldable (forA_)
 import DA.Map qualified as Map
+import DA.Text qualified as Text
 import DA.TextMap qualified as TextMap
 import Splice.Api.Token.AllocationInstructionV1 qualified as AI
 import Splice.Api.Token.AllocationV1 qualified as A
@@ -74,6 +75,25 @@ lockHolders : Optional H.Lock -> [Party]
 lockHolders None = []
 lockHolders (Some l) = l.holders
 
+-- A lock is in force until its expiresAt (V1/V2: "absolute, inclusive deadline as of which the lock expires").
+-- After that the holding behaves as unlocked everywhere in this token: no extra step is needed to use it.
+lockActive : Time -> Optional H.Lock -> Bool
+lockActive _ None = False
+lockActive now (Some l) = case l.expiresAt of
+  None -> True
+  Some t -> now < t
+
+-- Locks created by CusdtHolding_Lock carry this prefix in their context; only those can be released early by their holders
+-- (an allocation lock, whose holder is the executor, can not).
+voluntaryLockPrefix : Text
+voluntaryLockPrefix = "cusdt/voluntary-lock: "
+
+isVoluntaryLock : Optional H.Lock -> Bool
+isVoluntaryLock None = False
+isVoluntaryLock (Some l) = case l.context of
+  Some c -> voluntaryLockPrefix `Text.isPrefixOf` c
+  None -> False
+
 completed : [ContractId H.Holding] -> [ContractId H.Holding] -> TI.TransferInstructionResult
 completed receiverCids changeCids = TI.TransferInstructionResult with
   output = TI.TransferInstructionResult_Completed with receiverHoldingCids = receiverCids
@@ -95,11 +115,12 @@ spendInputs admin sender amount inputCidsI = do
 
 spendInputsT : Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Update [ContractId CusdtHolding]
 spendInputsT admin sender amount inputCids = do
+  now <- getTime
   inputs <- forA inputCids fetch
   forA_ inputs $ \h -> do
     assertMsg "input admin mismatch" (h.admin == admin)
     assertMsg "input not owned by sender" (h.owner == sender)
-    assertMsg "input holding is locked" (h.lock == None)
+    assertMsg "input holding is locked" (not (lockActive now h.lock))
   let total = sum (map (\h -> h.amount) inputs)
   assertMsg "insufficient funds in inputs" (total >= amount)
   forA_ inputCids archive
@@ -152,12 +173,13 @@ template CusdtHolding
       with splitAmount : Decimal
       controller owner
       do
-        assertMsg "holding is locked" (lock == None)
+        now <- getTime
+        assertMsg "holding is locked" (not (lockActive now lock))
         assertMsg "splitAmount must be positive" (splitAmount > 0.0)
         assertMsg "splitAmount must be less than amount" (splitAmount < amount)
         assertPrecision "splitAmount" splitAmount
-        a <- create this with amount = splitAmount
-        b <- create this with amount = amount - splitAmount
+        a <- create CusdtHolding with admin, owner, amount = splitAmount, lock = None
+        b <- create CusdtHolding with admin, owner, amount = amount - splitAmount, lock = None
         pure (a, b)
 
     -- Consolidate this holding with others (UTXO hygiene: keep holdings per user low).
@@ -165,22 +187,60 @@ template CusdtHolding
       with otherCids : [ContractId CusdtHolding]
       controller owner
       do
-        assertMsg "holding is locked" (lock == None)
+        now <- getTime
+        assertMsg "holding is locked" (not (lockActive now lock))
         others <- forA otherCids fetch
         forA_ others $ \o -> do
           assertMsg "owner mismatch" (o.owner == owner)
           assertMsg "admin mismatch" (o.admin == admin)
-          assertMsg "other holding is locked" (o.lock == None)
+          assertMsg "other holding is locked" (not (lockActive now o.lock))
         forA_ otherCids archive
-        create this with amount = amount + sum (map (\o -> o.amount) others)
+        create CusdtHolding with admin, owner, amount = amount + sum (map (\o -> o.amount) others), lock = None
 
     -- Owner destroys their own holding (e.g. the admin burning redeemed cUSDT).
     -- The admin cannot use THIS choice on other people's holdings (as the only signatory of a holding it can still use Daml's built-in Archive on it).
     choice CusdtHolding_Burn : ()
       controller owner
       do
-        assertMsg "holding is locked" (lock == None)
+        now <- getTime
+        assertMsg "holding is locked" (not (lockActive now lock))
         pure ()
+
+    -- Voluntary lock: the owner locks the holding until `expiresAt`. The `holders` (e.g. an escrow or vesting agent) can release it
+    -- early, all of them together; with no holders it is a pure time lock that nobody can shorten.
+    choice CusdtHolding_Lock : ContractId CusdtHolding
+      with
+        holders   : [Party]
+        expiresAt : Time
+        context   : Text
+      controller owner
+      do
+        now <- getTime
+        assertMsg "holding is already locked" (not (lockActive now lock))
+        assertMsg "expiresAt must be in the future" (expiresAt > now)
+        assertMsg "the owner cannot be a lock holder (it could just unlock again)" (not (owner `elem` holders))
+        create CusdtHolding with
+          admin, owner, amount
+          lock = Some (H.Lock with
+            holders = holders
+            expiresAt = Some expiresAt
+            expiresAfter = None
+            context = Some (voluntaryLockPrefix <> context))
+
+    -- Early release of a VOLUNTARY lock by all its holders. An allocation lock can not be released this way.
+    choice CusdtHolding_UnlockEarly : ContractId CusdtHolding
+      controller lockHolders lock
+      do
+        assertMsg "only voluntary locks can be released early" (isVoluntaryLock lock)
+        create CusdtHolding with admin, owner, amount, lock = None
+
+    -- Tidy-up after expiry: the holding is spendable anyway once its lock has expired; this just drops the stale lock record.
+    choice CusdtHolding_UnlockExpired : ContractId CusdtHolding
+      controller owner
+      do
+        now <- getTime
+        assertMsg "the holding has no expired lock" (lock /= None && not (lockActive now lock))
+        create CusdtHolding with admin, owner, amount, lock = None
 
 -- Issuer -------------------------------------------------------------------
 
@@ -511,6 +571,15 @@ template CusdtAllocation
           senderHoldingCids = [h]
           meta = M.emptyMetadata
 
+    -- An expired lock no longer blocks the owner, so after settleBefore the locked holding may already have been spent and
+    -- Allocation_Withdraw would fail on the missing holding. The sender can always drop an expired allocation with this choice.
+    choice CusdtAllocation_DiscardExpired : ()
+      controller allocation.transferLeg.sender
+      do
+        now <- getTime
+        assertMsg "the settlement window has not passed yet" (now >= allocation.settlement.settleBefore)
+        pure ()
+
 -- Settlement authority (cross-participant / cross-kind settlement) ---------------------------------------
 --
 -- Allocation_ExecuteTransfer needs the joint authority of executor + sender + receiver, and ONE node can only
@@ -621,11 +690,12 @@ template CusdtBurnMintFactory
         assertMsg "expectedAdmin mismatch" (arg.expectedAdmin == admin)
         assertMsg "wrong instrument" (arg.instrumentId == cusdtInstrumentId admin)
         assertMsg "nothing to burn or mint" (not (null arg.inputHoldingCids && null arg.outputs))
+        now <- getTime
         let inputCids : [ContractId CusdtHolding] = map fromInterfaceContractId arg.inputHoldingCids
         inputs <- forA inputCids fetch
         forA_ inputs $ \h -> do
           assertMsg "input admin mismatch" (h.admin == admin)
-          assertMsg "input holding is locked" (h.lock == None)
+          assertMsg "input holding is locked" (not (lockActive now h.lock))
           assertMsg "owner of a burnt holding must be an extra actor" (h.owner `elem` arg.extraActors)
         forA_ arg.outputs $ \o -> do
           assertMsg "output amount must be positive" (o.amount > 0.0)

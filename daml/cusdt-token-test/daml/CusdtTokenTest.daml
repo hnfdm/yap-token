@@ -399,10 +399,7 @@ testSettlementWindow = do
   alloc <- doAllocate w w.alice w.bob "ref-7" 4.0 [h]
   passTime (hours 3)    -- past settleBefore (2 h)
   submitMustFail (actAs [w.admin, w.alice, w.bob]) (executeAlloc alloc)
-  -- FINDING documented as a test: an EXPIRED lock does not unlock by itself (expiresAt is not honoured by Split/Burn);
-  -- the sender gets the funds back by withdrawing.
-  [(l, _)] <- lockedOf w w.alice
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0
+  -- an expired lock no longer blocks the owner (see testExpiredAllocationLockNoLongerBlocksTheOwner); withdrawing still works
   _ <- submit w.alice (withdrawAlloc alloc)
   expectBalance (balance w w.alice) 10.0 "withdraw after the window releases everything"
 
@@ -927,3 +924,114 @@ testBurnMintPublicFetch = do
     exerciseCmd (toInterfaceContractId @BM.BurnMintFactory bf) BM.BurnMintFactory_PublicFetch with expectedAdmin = w.admin, actor = w.alice
   submitMustFail (actAs w.alice <> disclose bfD) do
     exerciseCmd (toInterfaceContractId @BM.BurnMintFactory bf) BM.BurnMintFactory_PublicFetch with expectedAdmin = w.bob, actor = w.alice
+
+-- ---------------------------------------------------------------------------------------------------------
+-- locks: expiry is honoured, voluntary locks, discarding an expired allocation
+
+testExpiredAllocationLockNoLongerBlocksTheOwner : Script ()
+testExpiredAllocationLockNoLongerBlocksTheOwner = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  alloc <- doAllocate w w.alice w.bob "exp-1" 4.0 [h]
+  [(l, _)] <- lockedOf w w.alice
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0     -- still locked inside the window
+  passTime (hours 3)
+  submitMustFail (actAs [w.admin, w.alice, w.bob]) (executeAlloc alloc)                  -- but it can no longer be settled
+  _ <- submit w.alice do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0         -- expired: the owner can use it
+  expectBalance (balance w w.alice) 10.0 "both split parts are plain holdings again"
+  submitMustFail w.alice (withdrawAlloc alloc)                                           -- the locked holding is gone
+  submitMustFail w.bob do exerciseCmd alloc CusdtAllocation_DiscardExpired               -- only the sender may discard
+  _ <- submit w.alice do exerciseCmd alloc CusdtAllocation_DiscardExpired
+  allocs <- query @CusdtAllocation w.admin
+  assertMsg "no allocation left" (null allocs)
+  expectBalance (supplyAll w) 10.0 "supply unchanged"
+
+testDiscardNeedsExpiry : Script ()
+testDiscardNeedsExpiry = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  alloc <- doAllocate w w.alice w.bob "exp-2" 4.0 [h]
+  submitMustFail w.alice do exerciseCmd alloc CusdtAllocation_DiscardExpired
+  _ <- submit w.alice (withdrawAlloc alloc)
+  expectBalance (balance w w.alice) 10.0 "withdraw inside the window still works"
+
+testExpiredLockedHoldingIsUsableEverywhere : Script ()
+testExpiredLockedHoldingIsUsableEverywhere = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  _ <- doAllocate w w.alice w.bob "exp-3" 4.0 [h]
+  [(l, _)] <- lockedOf w w.alice
+  passTime (hours 3)
+  -- as a transfer input (V1 and V2) ...
+  sendOffer w w.alice w.bob 1.0 [l]
+  expectBalance (balance w w.alice) 9.0 "the expired-locked holding paid a transfer, change came back unlocked"
+  -- ... as a merge partner and for burning
+  h2 <- mint w w.alice 2.0
+  h3 <- mint w w.alice 3.0
+  _ <- submit w.alice do exerciseCmd h2 CusdtHolding_Merge with otherCids = [h3]
+  expectBalance (balance w w.alice) 14.0 "merged"
+
+testVoluntaryLock : Script ()
+testVoluntaryLock = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  now <- getTime
+  submitMustFail w.bob do exerciseCmd h CusdtHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 2), context = "x"   -- not the owner
+  submitMustFail w.alice do exerciseCmd h CusdtHolding_Lock with holders = [w.alice], expiresAt = addRelTime now (hours 2), context = "x" -- owner as holder
+  submitMustFail w.alice do exerciseCmd h CusdtHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (seconds (-1)), context = "x" -- already past
+  l <- submit w.alice do exerciseCmd h CusdtHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 2), context = "escrow"
+  expectBalance (balance w w.alice) 0.0 "a locked holding is not free"
+  -- nothing can move it
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_Burn
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 3), context = "again"
+  submitMustFail (actAs w.alice <> disclose w.tfD) (transferCmd w now w.alice w.bob 1.0 [l])
+  submitMustFail (actAs w.alice <> disclose w.afD) (allocateCmd w now w.alice w.bob w.admin "vl" 1.0 [l])
+  -- the V2 view shows the lock and who holds it
+  vs <- queryInterface @H2.Holding w.alice
+  assertMsg "the V2 view reports the lock holders" (not (null [ () | (_, Some v) <- vs, Some lk <- [v.lock], lk.holders == [w.bob] ]))
+  -- early release: only the holder, and not the owner or the issuer
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_UnlockEarly
+  submitMustFail w.admin do exerciseCmd l CusdtHolding_UnlockEarly
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_UnlockExpired                       -- not expired yet
+  _ <- submit w.bob do exerciseCmd l CusdtHolding_UnlockEarly
+  expectBalance (balance w w.alice) 10.0 "released by the holder"
+  expectBalance (supplyAll w) 10.0 "supply unchanged"
+
+testPureTimeLockNobodyCanShorten : Script ()
+testPureTimeLockNobodyCanShorten = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  now <- getTime
+  l <- submit w.alice do exerciseCmd h CusdtHolding_Lock with holders = [], expiresAt = addRelTime now (hours 1), context = "time lock"
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_UnlockEarly
+  submitMustFail w.bob do exerciseCmd l CusdtHolding_UnlockEarly
+  submitMustFail w.admin do exerciseCmd l CusdtHolding_UnlockEarly
+  passTime (hours 2)
+  now2 <- getTime
+  sendOffer w w.alice w.bob 4.0 [l]                                                         -- after expiry it is spendable without any unlock step
+  expectBalance (balance w w.alice) 6.0 "change after the expired lock"
+  _ <- pure now2
+  pure ()
+
+testUnlockExpiredTidyUp : Script ()
+testUnlockExpiredTidyUp = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  now <- getTime
+  l <- submit w.alice do exerciseCmd h CusdtHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 1), context = "tidy"
+  passTime (hours 2)
+  _ <- submit w.alice do exerciseCmd l CusdtHolding_UnlockExpired
+  expectBalance (balance w w.alice) 10.0 "stale lock record dropped"
+  [(u, _)] <- freeOf w w.alice
+  submitMustFail w.alice do exerciseCmd u CusdtHolding_UnlockExpired                       -- nothing to drop
+
+testAllocationLockCannotBeReleasedEarly : Script ()
+testAllocationLockCannotBeReleasedEarly = do
+  w <- setup
+  h <- mint w w.alice 10.0
+  _ <- doAllocate w w.alice w.bob "no-early" 4.0 [h]
+  [(l, _)] <- lockedOf w w.alice
+  submitMustFail w.admin do exerciseCmd l CusdtHolding_UnlockEarly                          -- the executor holds the lock, but it is not voluntary
+  submitMustFail w.alice do exerciseCmd l CusdtHolding_UnlockEarly
+  expectBalance (supplyAll w) 10.0 "nothing moved"

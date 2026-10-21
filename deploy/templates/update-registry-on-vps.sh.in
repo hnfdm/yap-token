@@ -1,13 +1,25 @@
 #!/usr/bin/env bash
 # Updates ONLY the registry on the testnet VPS (no Daml rebuild) and restarts the service.
+# Keeps a backup of the old server.mjs, turns Token Standard V2 on (CUSDT_ENABLE_V2=1) and checks the result.
 # Save as a file, then:  bash update-registry-on-vps.sh
+# Roll back:  cp /opt/cusdt-registry/server.mjs.bak-<timestamp> /opt/cusdt-registry/server.mjs && systemctl restart cusdt-registry
 set -euo pipefail
+TS=$(date +%Y%m%d-%H%M%S)
+[ -f /opt/cusdt-registry/server.mjs ] && cp /opt/cusdt-registry/server.mjs /opt/cusdt-registry/server.mjs.bak-$TS && echo "backup: /opt/cusdt-registry/server.mjs.bak-$TS"
 cat > /opt/cusdt-registry/server.mjs <<'EOF_JS'
 @@EMBED registry/src/server.mjs@@
 EOF_JS
+node --check /opt/cusdt-registry/server.mjs && echo "syntax ok"
+grep -q '^CUSDT_ENABLE_V2=' /etc/cusdt-registry.env || echo 'CUSDT_ENABLE_V2=1' >> /etc/cusdt-registry.env
+sed -i 's/^CUSDT_ENABLE_V2=.*/CUSDT_ENABLE_V2=1/' /etc/cusdt-registry.env
 systemctl restart cusdt-registry
 sleep 3
+systemctl is-active cusdt-registry
 echo "health:"; curl -s localhost:8787/health; echo
 ADMIN=$(grep '^CUSDT_ADMIN_PARTY=' /etc/cusdt-registry.env | cut -d= -f2-)
 echo "alias path (Utility-style):"
 curl -s "localhost:8787/api/token-standard/v0/registrars/$ADMIN/registry/metadata/v1/info" | cut -c1-90; echo
+echo "advertised APIs (V2 entries must be present):"
+curl -s localhost:8787/registry/metadata/v1/info | tr ',' '\n' | grep -E "supportedApis|token-(holding|transfer-instruction)-v[12]" | sed 's/^/   /'
+echo "V2 route answers (400 = route exists and validates):"
+curl -s -o /dev/null -w "   v2 transfer-factory with an empty body -> HTTP %{http_code}\n" -X POST -H 'Content-Type: application/json' -d '{}' localhost:8787/registry/transfer-instruction/v2/transfer-factory

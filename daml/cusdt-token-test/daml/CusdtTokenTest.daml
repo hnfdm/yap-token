@@ -1181,3 +1181,142 @@ testVestingGrantGuards = do
       finish = addRelTime now (days 1)
       revocable = True
   expectBalance (supplyAll w) 0.0 "nothing was issued"
+
+-- ---------------------------------------------------------------------------------------------------------
+-- operator / governor split (0.7.0)
+
+-- carol is the operator in these tests; the admin plays the governor
+appoint : World -> Decimal -> RelTime -> Script (ContractId CusdtOperatorAuthority)
+appoint w allowance validFor = do
+  adm <- vestAdmin w
+  now <- getTime
+  submit w.admin do
+    exerciseCmd adm CusdtAdmin_AppointOperator with operator = w.carol, allowance, validUntil = addRelTime now validFor
+
+-- the (single) live authority and its allowance
+opState : World -> Script (ContractId CusdtOperatorAuthority, Decimal)
+opState w = do
+  [(c, a)] <- query @CusdtOperatorAuthority w.admin
+  pure (c, a.allowance)
+
+opMint : World -> ContractId CusdtOperatorAuthority -> Party -> Decimal -> Commands (ContractId CusdtHolding, ContractId CusdtOperatorAuthority)
+opMint w auth to amt = exerciseCmd auth CusdtOperator_Mint with recipient = to, amount = amt
+
+testOperatorMintShrinksAllowance : Script ()
+testOperatorMintShrinksAllowance = do
+  w <- setup
+  auth <- appoint w 100.0 (days 30)
+  (_, auth2) <- submit w.carol do opMint w auth w.alice 40.0
+  expectBalance (balance w w.alice) 40.0 "alice got 40"
+  (_, a) <- opState w
+  assertMsg ("allowance 60, got " <> show a) (a == 60.0)
+  submitMustFail w.carol do opMint w auth w.alice 1.0          -- the old authority is consumed
+  submitMustFail w.carol do opMint w auth2 w.alice 60.0000001  -- over the rest (and 7 decimals)
+  submitMustFail w.carol do opMint w auth2 w.alice 60.01
+  submitMustFail w.carol do opMint w auth2 w.alice 0.0
+  submitMustFail w.carol do opMint w auth2 w.alice (-1.0)
+  (_, auth3) <- submit w.carol do opMint w auth2 w.bob 60.0
+  expectBalance (balance w w.bob) 60.0 "bob got the rest"
+  submitMustFail w.carol do opMint w auth3 w.bob 0.000001      -- allowance is zero now
+  expectBalance (supplyAll w) 100.0 "exactly the allowance was issued"
+
+testOperatorExpires : Script ()
+testOperatorExpires = do
+  w <- setup
+  auth <- appoint w 100.0 (days 1)
+  now <- getTime
+  passTime (days 2)
+  submitMustFail w.carol do opMint w auth w.alice 1.0
+  submitMustFail w.carol do
+    exerciseCmd auth CusdtOperator_GrantVesting with
+      beneficiary = w.bob, amount = 1.0, start = now, cliff = now, finish = addRelTime now (days 5), revocable = True
+  submitMustFail w.carol do exerciseCmd auth CusdtOperator_CreatePreapproval with receiver = w.bob
+  expectBalance (supplyAll w) 0.0 "nothing was issued"
+
+testOperatorGrantVestingUsesAllowance : Script ()
+testOperatorGrantVestingUsesAllowance = do
+  w <- setup
+  auth <- appoint w 100.0 (days 30)
+  now <- getTime
+  let grant a amt fin = exerciseCmd a CusdtOperator_GrantVesting with
+        beneficiary = w.bob, amount = amt, start = now, cliff = now, finish = addRelTime now fin, revocable = True
+  submitMustFail w.carol do grant auth 100.01 (days 5)
+  submitMustFail w.carol do grant auth 0.0 (days 5)
+  submitMustFail w.carol do grant auth 10.0 (seconds 0)       -- finish not in the future
+  (_, auth2) <- submit w.carol do grant auth 70.0 (days 5)
+  (_, a) <- opState w
+  assertMsg ("allowance 30, got " <> show a) (a == 30.0)
+  locked <- lockedOf w w.bob
+  assertMsg "70 locked for bob" (sum [ h.amount | (_, h) <- locked ] == 70.0)
+  submitMustFail w.carol do grant auth2 30.01 (days 5)
+  expectBalance (supplyAll w) 70.0 "only the vested grant exists"
+
+testOperatorPreapproval : Script ()
+testOperatorPreapproval = do
+  w <- setup
+  auth <- appoint w 0.0 (days 30)
+  _ <- submit w.carol do exerciseCmd auth CusdtOperator_CreatePreapproval with receiver = w.bob
+  ps <- query @CusdtTransferPreapproval w.admin
+  assertMsg "one preapproval for bob" (length [ () | (_, p) <- ps, p.receiver == w.bob, p.admin == w.admin ] == 1)
+  -- the same authority still works after a non-consuming use
+  _ <- submit w.carol do exerciseCmd auth CusdtOperator_CreatePreapproval with receiver = w.alice
+  pure ()
+
+testOperatorHasNoOtherPower : Script ()
+testOperatorHasNoOtherPower = do
+  w <- setup
+  auth <- appoint w 100.0 (days 30)
+  adm <- vestAdmin w
+  now <- getTime
+  h <- mint w w.alice 10.0
+  v <- submit w.admin do
+    exerciseCmd adm CusdtAdmin_GrantVesting with
+      beneficiary = w.bob, amount = 5.0, start = now, cliff = now, finish = addRelTime now (days 5), revocable = True
+  submitMustFail w.carol do archiveCmd auth                              -- cannot remove its own limits
+  submitMustFail w.carol do exerciseCmd auth CusdtOperatorAuthority_SetAllowance with newAllowance = 1000000.0, newValidUntil = addRelTime now (days 999)
+  submitMustFail w.carol do exerciseCmd adm CusdtAdmin_Mint with recipient = w.carol, amount = 1.0
+  submitMustFail w.carol do exerciseCmd adm CusdtAdmin_CreatePreapproval with receiver = w.carol
+  submitMustFail w.carol do exerciseCmd adm CusdtAdmin_AppointOperator with operator = w.carol, allowance = 1000000.0, validUntil = addRelTime now (days 999)
+  submitMustFail w.carol do archiveCmd h                                 -- holdings are the governor's
+  submitMustFail w.carol do exerciseCmd v CusdtVesting_Revoke
+  submitMustFail w.alice do opMint w auth w.alice 1.0                    -- only the named operator
+  submitMustFail w.bob do exerciseCmd auth CusdtOperator_CreatePreapproval with receiver = w.bob
+  submitMustFail w.admin do opMint w auth w.alice 1.0                    -- not even the governor through the operator door
+  expectBalance (balance w w.alice) 10.0 "alice unchanged"
+
+testGovernorControlsTheOperator : Script ()
+testGovernorControlsTheOperator = do
+  w <- setup
+  auth <- appoint w 10.0 (days 1)
+  now <- getTime
+  auth2 <- submit w.admin do
+    exerciseCmd auth CusdtOperatorAuthority_SetAllowance with newAllowance = 25.0, newValidUntil = addRelTime now (days 10)
+  (_, a) <- opState w
+  assertMsg "topped up to 25" (a == 25.0)
+  submitMustFail w.admin do exerciseCmd auth2 CusdtOperatorAuthority_SetAllowance with newAllowance = -1.0, newValidUntil = now
+  submitMustFail w.admin do exerciseCmd auth2 CusdtOperatorAuthority_SetAllowance with newAllowance = 1.0000001, newValidUntil = now
+  passTime (days 5)                                                      -- old expiry passed, new one not
+  (_, auth3) <- submit w.carol do opMint w auth2 w.alice 5.0
+  -- lowering takes effect at once
+  auth4 <- submit w.admin do
+    exerciseCmd auth3 CusdtOperatorAuthority_SetAllowance with newAllowance = 1.0, newValidUntil = addRelTime now (days 10)
+  submitMustFail w.carol do opMint w auth4 w.alice 2.0
+  -- revoking: the governor archives the delegation
+  submit w.admin do archiveCmd auth4
+  submitMustFail w.carol do opMint w auth4 w.alice 1.0
+  expectBalance (supplyAll w) 5.0 "5 issued in total"
+
+testAppointOperatorGuards : Script ()
+testAppointOperatorGuards = do
+  w <- setup
+  adm <- vestAdmin w
+  now <- getTime
+  let go op al = submitMustFail w.admin do
+        exerciseCmd adm CusdtAdmin_AppointOperator with operator = op, allowance = al, validUntil = addRelTime now (days 1)
+  go w.admin 10.0                      -- operator = governor
+  go w.carol (-1.0)
+  go w.carol 0.0000001
+  submitMustFail w.carol do            -- only the governor appoints
+    exerciseCmd adm CusdtAdmin_AppointOperator with operator = w.carol, allowance = 1.0, validUntil = addRelTime now (days 1)
+  os <- query @CusdtOperatorAuthority w.admin
+  assertMsg "no authority was created" (null os)

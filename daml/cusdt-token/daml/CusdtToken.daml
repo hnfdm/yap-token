@@ -277,13 +277,98 @@ template CusdtAdmin
         finish      : Time
         revocable   : Bool
       controller admin
+      do grantVesting admin beneficiary amount start cliff finish revocable
+
+    -- Governance: hands a day-to-day operator a limited, expiring allowance (see CusdtOperatorAuthority).
+    -- The admin (governor) keeps every power above; the operator only gets what is written in the delegation.
+    nonconsuming choice CusdtAdmin_AppointOperator : ContractId CusdtOperatorAuthority
+      with
+        operator   : Party
+        allowance  : Decimal
+        validUntil : Time
+      controller admin
+      do
+        assertMsg "operator must differ from the admin" (operator /= admin)
+        assertMsg "allowance must not be negative" (allowance >= 0.0)
+        assertPrecision "allowance" allowance
+        create CusdtOperatorAuthority with admin, operator, allowance, validUntil
+
+grantVesting : Party -> Party -> Decimal -> Time -> Time -> Time -> Bool -> Update (ContractId CusdtVesting)
+grantVesting admin beneficiary amount start cliff finish revocable = do
+  now <- getTime
+  assertMsg "vesting amount must be positive" (amount > 0.0)
+  assertPrecision "vesting amount" amount
+  assertMsg "finish must be in the future" (finish > now)
+  lockedCid <- create CusdtHolding with admin, owner = beneficiary, amount, lock = Some (vestingLock admin finish)
+  create CusdtVesting with admin, beneficiary, total = amount, claimed = 0.0, start, cliff, finish, revocable, lockedCid
+
+-- Operator delegation -----------------------------------------------------------------------------------
+-- Signed by the admin (governor). The operator can mint and grant vestings only while `allowance` lasts
+-- (every use shrinks it; the admin tops it up with _SetAllowance) and only until `validUntil`. It can also
+-- create preapprovals. It cannot archive/change holdings, revoke vestings or run BurnMint. The admin
+-- revokes the operator by archiving this contract (built-in Archive, the admin is the only signatory).
+template CusdtOperatorAuthority
+  with
+    admin      : Party
+    operator   : Party
+    allowance  : Decimal
+    validUntil : Time
+  where
+    signatory admin
+    observer operator
+
+    choice CusdtOperator_Mint : (ContractId CusdtHolding, ContractId CusdtOperatorAuthority)
+      with
+        recipient : Party
+        amount    : Decimal
+      controller operator
+      do
+        spendAllowance this amount
+        assertPrecision "mint amount" amount
+        h <- create CusdtHolding with admin, owner = recipient, amount, lock = None
+        a <- create this with allowance = allowance - amount
+        pure (h, a)
+
+    choice CusdtOperator_GrantVesting : (ContractId CusdtVesting, ContractId CusdtOperatorAuthority)
+      with
+        beneficiary : Party
+        amount      : Decimal
+        start       : Time
+        cliff       : Time
+        finish      : Time
+        revocable   : Bool
+      controller operator
+      do
+        spendAllowance this amount
+        v <- grantVesting admin beneficiary amount start cliff finish revocable
+        a <- create this with allowance = allowance - amount
+        pure (v, a)
+
+    nonconsuming choice CusdtOperator_CreatePreapproval : ContractId CusdtTransferPreapproval
+      with receiver : Party
+      controller operator
       do
         now <- getTime
-        assertMsg "vesting amount must be positive" (amount > 0.0)
-        assertPrecision "vesting amount" amount
-        assertMsg "finish must be in the future" (finish > now)
-        lockedCid <- create CusdtHolding with admin, owner = beneficiary, amount, lock = Some (vestingLock admin finish)
-        create CusdtVesting with admin, beneficiary, total = amount, claimed = 0.0, start, cliff, finish, revocable, lockedCid
+        assertMsg "operator authority expired" (now < validUntil)
+        create CusdtTransferPreapproval with admin, receiver
+
+    -- Governance only: new allowance and expiry (up or down).
+    choice CusdtOperatorAuthority_SetAllowance : ContractId CusdtOperatorAuthority
+      with
+        newAllowance  : Decimal
+        newValidUntil : Time
+      controller admin
+      do
+        assertMsg "allowance must not be negative" (newAllowance >= 0.0)
+        assertPrecision "allowance" newAllowance
+        create this with allowance = newAllowance, validUntil = newValidUntil
+
+spendAllowance : CusdtOperatorAuthority -> Decimal -> Update ()
+spendAllowance a amount = do
+  now <- getTime
+  assertMsg "operator authority expired" (now < a.validUntil)
+  assertMsg "amount must be positive" (amount > 0.0)
+  assertMsg "amount exceeds the operator allowance" (amount <= a.allowance)
 
 -- Preapproval ----------------------------------------------------------------
 

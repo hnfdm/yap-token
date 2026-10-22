@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# A generic vote on the decentralized party cusdt-gov: nothing moves, but it proves propose -> confirm (other node) -> execute works.
+#   t1:  bash decman-vote-on-vps.sh propose "text"       t1 or t2:  bash decman-vote-on-vps.sh list
+#   t2:  bash decman-vote-on-vps.sh confirm              (confirms the single open proposal after showing it)
+#   t1:  bash decman-vote-on-vps.sh execute
+set -uo pipefail
+. /opt/decman/api.sh
+DEC=cusdt-gov::12205fb8f032bfcfe6ae4ae3a7625629fe9065668ee529e3a785691e1cdce5022c2b
+rules() { api GET "/governance/state?party_id=$DEC" | head -1 | python3 -c 'import sys,json;print(json.load(sys.stdin)["state"]["contract_id"])'; }
+open_action() { api GET "/governance/confirmations?party_id=$DEC" | head -1 | python3 -c 'import sys,json
+j=json.load(sys.stdin); d=j.get("domain_actions",[])
+print(json.dumps(d[0]) if d else "")'; }
+pj() { python3 -c 'import sys,json
+a=json.loads(sys.argv[1]); print(a.get(sys.argv[2],""))' "$1" "$2"; }
+case "${1:-}" in
+  propose)
+    D=${2:-"Approve the cUSDT governance test vote"}
+    BODY=$(python3 - "$DEC" "$(rules)" "$D" <<'PY'
+import json,sys
+print(json.dumps({"party_id":sys.argv[1],"rules_contract_id":sys.argv[2],"proposal":{"type":"generic_vote","description":sys.argv[3]}}))
+PY
+)
+    api POST /governance/propose "$BODY" | cut -c1-500 ;;
+  list) api GET "/governance/confirmations?party_id=$DEC" | cut -c1-1500 ;;
+  confirm)
+    A=$(open_action); [ -n "$A" ] || { echo "no open proposal visible yet"; exit 1; }
+    echo "$A" | cut -c1-700; echo "confirming in 10 s (Ctrl+C to abort)"; sleep 10
+    BODY=$(python3 - "$DEC" "$(rules)" "$(pj "$A" proposal_cid)" <<'PY'
+import json,sys
+print(json.dumps({"party_id":sys.argv[1],"rules_contract_id":sys.argv[2],"action":{"type":"governance_set_threshold","new_threshold":0},"governance_type":"core_domain","proposal_cid":sys.argv[3]}))
+PY
+)
+    api POST /governance/confirm "$BODY" | cut -c1-500 ;;
+  execute)
+    A=$(open_action); [ -n "$A" ] || { echo "no open proposal"; exit 1; }
+    echo "$A" | cut -c1-900
+    BODY=$(python3 - "$DEC" "$(rules)" "$A" <<'PY'
+import json,sys
+a=json.loads(sys.argv[3])
+print(json.dumps({"party_id":sys.argv[1],"rules_contract_id":sys.argv[2],"action":{"type":"governance_set_threshold","new_threshold":0},"confirmation_cids":a.get("executable_confirmation_cids",[]),"disclosed_contracts":[],"governance_type":"core_domain","proposal_cid":a["proposal_cid"]}))
+PY
+)
+    api POST /governance/execute "$BODY" | cut -c1-600 ;;
+  *) echo "usage: $0 propose [text] | list | confirm | execute"; exit 1 ;;
+esac

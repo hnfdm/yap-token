@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Stores this node's Ledger API credentials for the decentralized party, grants the 4 ledger rights, tests auth.
+# Usage:  bash decman-party-creds-on-vps.sh <dec_party_id>      (run on t1 AND t2; secrets are read from /opt/decman/creds, never printed)
+set -uo pipefail
+DEC=${1:?usage: $0 <decentralized party id>}
+. /opt/decman/api.sh
+mk() { python3 - "$@" <<'PY'
+import json,sys
+c=dict(l.strip().split('=',1) for l in open('/opt/decman/creds') if '=' in l)
+extra=dict(a.split('=',1) for a in sys.argv[1:])
+d={"dec_party_id":sys.argv[0] if False else None}
+d={"keycloak_url":"http://keycloak:8080","keycloak_realm":"canton","keycloak_client_id":c["CLIENT_ID"],"keycloak_client_secret":c["CLIENT_SECRET"]}
+d.update(extra); print(json.dumps(d))
+PY
+}
+echo "== discover member party =="
+R=$(api POST /party-config/discover-member-party "$(mk dec_party_id=$DEC)"); echo "$R" | cut -c1-500
+MEMBER=$(echo "$R" | head -1 | python3 -c 'import sys,json
+try:
+  j=json.loads(sys.stdin.read())
+  for k in ("member_party_id","party_id","party","primary_party"):
+    if k in j and j[k]: print(j[k]); break
+except Exception: pass')
+. /opt/decman/creds
+[ -n "$MEMBER" ] || { echo "no member party parsed; stop here and paste the output"; exit 1; }
+echo "member party: $MEMBER   ledger user: $LEDGER_USER"
+echo "== PUT /party-config =="
+api PUT /party-config "$(mk dec_party_id=$DEC member_party_id=$MEMBER user_id=$LEDGER_USER)" | cut -c1-400
+echo "== grant rights (uses the same client as the ParticipantAdmin identity) =="
+api POST /auth/grant-rights "$(python3 - "$DEC" <<'PY'
+import json,sys
+c=dict(l.strip().split('=',1) for l in open('/opt/decman/creds') if '=' in l)
+print(json.dumps({"dec_party_id":sys.argv[1],"admin_client_id":c["CLIENT_ID"],"admin_client_secret":c["CLIENT_SECRET"]}))
+PY
+)" | cut -c1-500
+echo "== auth test + status =="
+api POST /auth/test '{}' | cut -c1-500
+api GET /auth/status | cut -c1-700

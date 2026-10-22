@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Builds the cusdt-governance package (governed actions for a multi-owner admin) and runs its Daml Script tests.
+# Needs ~/cusdt-build/cusdt-token/.daml/dist/cusdt-token-@@VERSION@@.dar from a previous build-test-fresh-vps.sh run.
+#   Save as a file, then:  bash build-test-governance-on-vps.sh
+set -euo pipefail
+export PATH="$HOME/.dpm/bin:$PATH"
+W=$HOME/cusdt-build; C=$W/cusdt-token; G=$W/cusdt-governance; GT=$W/cusdt-governance-test
+[ -f $C/.daml/dist/cusdt-token-@@VERSION@@.dar ] || { echo "run build-test-fresh-vps.sh first (cusdt-token-@@VERSION@@.dar missing)"; exit 1; }
+mkdir -p $G/daml $G/dars $GT/daml
+cat > $G/daml.yaml <<'EOF_GY'
+@@EMBED daml/cusdt-governance/daml.yaml@@
+EOF_GY
+cat > $G/daml/CusdtGovernance.daml <<'EOF_GD'
+@@EMBED daml/cusdt-governance/daml/CusdtGovernance.daml@@
+EOF_GD
+cat > $GT/daml.yaml <<'EOF_GTY'
+@@EMBED daml/cusdt-governance-test/daml.yaml@@
+EOF_GTY
+cat > $GT/daml/CusdtGovernanceTest.daml <<'EOF_GTD'
+@@EMBED daml/cusdt-governance-test/daml/CusdtGovernanceTest.daml@@
+EOF_GTD
+echo "== governance-action-v1 DAR (sha256 verified) =="
+cd $G/dars
+[ -s governance-action-v1-0.1.0.dar ] || curl -fsSL -o governance-action-v1-0.1.0.dar https://raw.githubusercontent.com/DLC-link/decentralization-manager/main/releases/v1/governance-action-v1-0.1.0.dar
+echo "4fc7912df4a0aeea3cfcc6ba07c880192a5fa88f7c75ed04b922602461b1e485 *governance-action-v1-0.1.0.dar" | sha256sum -c - || { echo "CHECKSUM MISMATCH, aborting"; exit 1; }
+echo "== build cusdt-governance =="
+cd $G && dpm install package && dpm build
+DAR=$G/.daml/dist/cusdt-governance-0.1.0.dar; ls -la $DAR; sha256sum $DAR
+echo "== build + run tests =="
+cd $GT && dpm install package && dpm build && dpm test 2>&1 | grep -E "^daml/|rror|failed|Failed" | sed -E 's/, [0-9]+ active contracts, [0-9]+ transactions//'

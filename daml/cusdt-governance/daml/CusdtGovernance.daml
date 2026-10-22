@@ -1,0 +1,159 @@
+-- cUSDT governance actions for a multi-owner (decentralized) admin party.
+--
+-- The cUSDT admin ("governor") can be a Canton decentralized party managed with the Decentralization Manager (DecMan): no single node can
+-- act as it. The only way to use its authority is a governed action: a member creates one of the proposal contracts below (signatory =
+-- the member, observer = the governance party), enough members confirm it, and GovernanceRules executes it, which calls `executeImpl`
+-- with the authority of the governance party.
+--
+-- Every proposal names the contract it acts on (a ContractId), so it is only valid while that contract is still the live one: a stale
+-- id makes the execution fail and nothing changes (propose again with the current id). Every proposal also checks that the target
+-- belongs to the governance party, so a proposal cannot be used on another issuer's contracts.
+--
+-- The day-to-day power stays with the operator (see CusdtOperatorAuthority); these are the rare, governed decisions.
+module CusdtGovernance where
+
+import CusdtToken
+import Governance.Action
+
+-- Appoint an operator (or add one more authority for an operator that already has one, e.g. a top-up or a second lane).
+template AppointOperatorProposal
+  with
+    governanceParty : Party
+    proposer        : Party
+    adminCid        : ContractId CusdtAdmin
+    operator        : Party
+    allowance       : Decimal
+    validUntil      : Time
+  where
+    signatory proposer
+    observer governanceParty
+    ensure allowance >= 0.0 && operator /= governanceParty
+
+    interface instance GovernableAction for AppointOperatorProposal where
+      view = GovernableActionView with
+        governanceParty
+        proposer
+        actionLabel = "CusdtAppointOperator"
+        description = "Appoint cUSDT operator " <> show operator <> " with allowance " <> show allowance <> " until " <> show validUntil
+      executeImpl = do
+        a <- fetch adminCid
+        assertMsg "the CusdtAdmin contract belongs to another party" (a.admin == governanceParty)
+        _ <- exercise adminCid CusdtAdmin_AppointOperator with operator, allowance, validUntil
+        pure ()
+
+-- Change the allowance and expiry of an existing operator authority (up or down).
+template SetOperatorAllowanceProposal
+  with
+    governanceParty : Party
+    proposer        : Party
+    authorityCid    : ContractId CusdtOperatorAuthority
+    newAllowance    : Decimal
+    newValidUntil   : Time
+  where
+    signatory proposer
+    observer governanceParty
+    ensure newAllowance >= 0.0
+
+    interface instance GovernableAction for SetOperatorAllowanceProposal where
+      view = GovernableActionView with
+        governanceParty
+        proposer
+        actionLabel = "CusdtSetOperatorAllowance"
+        description = "Set cUSDT operator allowance to " <> show newAllowance <> " until " <> show newValidUntil
+      executeImpl = do
+        a <- fetch authorityCid
+        assertMsg "the operator authority belongs to another party" (a.admin == governanceParty)
+        _ <- exercise authorityCid CusdtOperatorAuthority_SetAllowance with newAllowance, newValidUntil
+        pure ()
+
+-- Revoke an operator authority (archive it). The operator can do nothing with it afterwards.
+template RevokeOperatorProposal
+  with
+    governanceParty : Party
+    proposer        : Party
+    authorityCid    : ContractId CusdtOperatorAuthority
+  where
+    signatory proposer
+    observer governanceParty
+
+    interface instance GovernableAction for RevokeOperatorProposal where
+      view = GovernableActionView with
+        governanceParty
+        proposer
+        actionLabel = "CusdtRevokeOperator"
+        description = "Revoke a cUSDT operator authority"
+      executeImpl = do
+        a <- fetch authorityCid
+        assertMsg "the operator authority belongs to another party" (a.admin == governanceParty)
+        archive authorityCid
+
+-- Revoke a (revocable) vesting grant: the vested part goes to the beneficiary, the rest back to the governance party.
+template RevokeVestingProposal
+  with
+    governanceParty : Party
+    proposer        : Party
+    vestingCid      : ContractId CusdtVesting
+  where
+    signatory proposer
+    observer governanceParty
+
+    interface instance GovernableAction for RevokeVestingProposal where
+      view = GovernableActionView with
+        governanceParty
+        proposer
+        actionLabel = "CusdtRevokeVesting"
+        description = "Revoke a cUSDT vesting grant"
+      executeImpl = do
+        v <- fetch vestingCid
+        assertMsg "the vesting belongs to another party" (v.admin == governanceParty)
+        _ <- exercise vestingCid CusdtVesting_Revoke
+        pure ()
+
+-- Governor-direct mint (the operator normally mints within its allowance; this is for a decision that bypasses it).
+template GovernorMintProposal
+  with
+    governanceParty : Party
+    proposer        : Party
+    adminCid        : ContractId CusdtAdmin
+    recipient       : Party
+    amount          : Decimal
+  where
+    signatory proposer
+    observer governanceParty
+    ensure amount > 0.0
+
+    interface instance GovernableAction for GovernorMintProposal where
+      view = GovernableActionView with
+        governanceParty
+        proposer
+        actionLabel = "CusdtGovernorMint"
+        description = "Mint " <> show amount <> " cUSDT for " <> show recipient
+      executeImpl = do
+        a <- fetch adminCid
+        assertMsg "the CusdtAdmin contract belongs to another party" (a.admin == governanceParty)
+        _ <- exercise adminCid CusdtAdmin_Mint with recipient, amount
+        pure ()
+
+-- Rescue: remove one holding from the ledger (the governance party is its signatory). This is the issuer's "admin can archive anything"
+-- power, now behind the members' threshold. The reason is kept in the audit record.
+template RescueHoldingProposal
+  with
+    governanceParty : Party
+    proposer        : Party
+    holdingCid      : ContractId CusdtHolding
+    reason          : Text
+  where
+    signatory proposer
+    observer governanceParty
+    ensure reason /= ""
+
+    interface instance GovernableAction for RescueHoldingProposal where
+      view = GovernableActionView with
+        governanceParty
+        proposer
+        actionLabel = "CusdtRescueHolding"
+        description = "Archive a cUSDT holding. Reason: " <> reason
+      executeImpl = do
+        h <- fetch holdingCid
+        assertMsg "the holding belongs to another issuer" (h.admin == governanceParty)
+        archive holdingCid

@@ -1,0 +1,167 @@
+-- Daml Script tests for the governed actions (daml/cusdt-governance).
+-- The governance machinery itself (GovernanceRules: threshold, confirmations, expiry) belongs to DecMan and is tested there; here
+-- `gov` plays "the governance party after enough confirmations": it exercises GovernableAction_Execute on a proposal that a member created.
+module CusdtGovernanceTest where
+
+import Daml.Script
+import DA.Time
+import DA.Date
+import CusdtToken
+import CusdtGovernance
+import Governance.Action
+
+data W = W with
+  gov    : Party   -- the decentralized governor (cUSDT admin)
+  member : Party   -- a member that proposes
+  op     : Party   -- an operator
+  alice  : Party
+  other  : Party   -- some unrelated issuer
+  adm    : ContractId CusdtAdmin
+
+setup : Script W
+setup = do
+  gov <- allocateParty "gov"
+  member <- allocateParty "member"
+  op <- allocateParty "op"
+  alice <- allocateParty "alice"
+  other <- allocateParty "other"
+  setTime (time (date 2026 Oct 22) 9 0 0)
+  adm <- submit gov do createCmd CusdtAdmin with admin = gov
+  pure W with ..
+
+-- the governance step: members confirmed, GovernanceRules executes (here: the governance party exercises Execute)
+execute : (Template t, Implements t GovernableAction) => Party -> ContractId t -> Script ()
+execute who pid = submit who do
+  exerciseCmd (toInterfaceContractId @GovernableAction pid) GovernableAction_Execute
+
+executeFails : (Template t, Implements t GovernableAction) => Party -> ContractId t -> Script ()
+executeFails who pid = submitMustFail who do
+  exerciseCmd (toInterfaceContractId @GovernableAction pid) GovernableAction_Execute
+
+allowanceOf : W -> Script [(ContractId CusdtOperatorAuthority, CusdtOperatorAuthority)]
+allowanceOf w = do
+  as <- query @CusdtOperatorAuthority w.gov
+  pure [ (c, a) | (c, a) <- as, a.operator == w.op ]
+
+testAppointOperator : Script ()
+testAppointOperator = do
+  w <- setup
+  now <- getTime
+  p <- submit w.member do
+    createCmd AppointOperatorProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, operator = w.op, allowance = 100.0, validUntil = addRelTime now (days 30)
+  executeFails w.member p                       -- a member alone cannot execute: only the governance party can
+  executeFails w.op p
+  [] <- allowanceOf w
+  execute w.gov p
+  [(_, a)] <- allowanceOf w
+  assertMsg "allowance 100" (a.allowance == 100.0)
+  assertMsg "admin is the governance party" (a.admin == w.gov)
+
+testAppointGuards : Script ()
+testAppointGuards = do
+  w <- setup
+  now <- getTime
+  let go op al = submitMustFail w.member do
+        createCmd AppointOperatorProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, operator = op, allowance = al, validUntil = addRelTime now (days 1)
+  go w.gov 10.0                                 -- operator = governance party
+  go w.op (-1.0)                                -- negative allowance
+  -- a CusdtAdmin of ANOTHER issuer cannot be used through this governance party
+  otherAdm <- submit w.other do createCmd CusdtAdmin with admin = w.other
+  p <- submit w.member do
+    createCmd AppointOperatorProposal with governanceParty = w.gov, proposer = w.member, adminCid = otherAdm, operator = w.op, allowance = 1.0, validUntil = addRelTime now (days 1)
+  executeFails w.gov p
+  [] <- allowanceOf w
+  pure ()
+
+testSetAllowanceAndStaleCid : Script ()
+testSetAllowanceAndStaleCid = do
+  w <- setup
+  now <- getTime
+  auth <- appoint w 100.0
+  -- the operator mints: the authority contract is consumed and recreated, the old id is stale
+  _ <- submit w.op do exerciseCmd auth CusdtOperator_Mint with recipient = w.alice, amount = 10.0
+  stale <- submit w.member do
+    createCmd SetOperatorAllowanceProposal with governanceParty = w.gov, proposer = w.member, authorityCid = auth, newAllowance = 500.0, newValidUntil = addRelTime now (days 60)
+  executeFails w.gov stale
+  [(cur, a0)] <- allowanceOf w
+  assertMsg "still 90 after the failed top-up" (a0.allowance == 90.0)
+  fresh <- submit w.member do
+    createCmd SetOperatorAllowanceProposal with governanceParty = w.gov, proposer = w.member, authorityCid = cur, newAllowance = 500.0, newValidUntil = addRelTime now (days 60)
+  execute w.gov fresh
+  [(_, a1)] <- allowanceOf w
+  assertMsg "topped up to 500" (a1.allowance == 500.0)
+  submitMustFail w.member do                    -- negative allowance is refused at proposal time
+    createCmd SetOperatorAllowanceProposal with governanceParty = w.gov, proposer = w.member, authorityCid = cur, newAllowance = -1.0, newValidUntil = now
+
+testRevokeOperator : Script ()
+testRevokeOperator = do
+  w <- setup
+  auth <- appoint w 100.0
+  p <- submit w.member do createCmd RevokeOperatorProposal with governanceParty = w.gov, proposer = w.member, authorityCid = auth
+  executeFails w.op p
+  execute w.gov p
+  [] <- allowanceOf w
+  submitMustFail w.op do exerciseCmd auth CusdtOperator_Mint with recipient = w.alice, amount = 1.0
+  pure ()
+
+testRevokeVesting : Script ()
+testRevokeVesting = do
+  w <- setup
+  now <- getTime
+  v <- submit w.gov do
+    exerciseCmd w.adm CusdtAdmin_GrantVesting with beneficiary = w.alice, amount = 100.0, start = now, cliff = now, finish = addRelTime now (days 10), revocable = True
+  passTime (days 5)
+  p <- submit w.member do createCmd RevokeVestingProposal with governanceParty = w.gov, proposer = w.member, vestingCid = v
+  executeFails w.alice p
+  execute w.gov p
+  vs <- query @CusdtVesting w.gov
+  assertMsg "the vesting is gone" (null vs)
+  hs <- query @CusdtHolding w.gov
+  let aliceGot = sum [ h.amount | (_, h) <- hs, h.owner == w.alice, h.lock == None ]
+  let govGot = sum [ h.amount | (_, h) <- hs, h.owner == w.gov ]
+  assertMsg ("half vested to alice, half back to the governor, got " <> show aliceGot <> " / " <> show govGot) (aliceGot == 50.0 && govGot == 50.0)
+
+testGovernorMint : Script ()
+testGovernorMint = do
+  w <- setup
+  p <- submit w.member do createCmd GovernorMintProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, recipient = w.alice, amount = 7.0
+  executeFails w.member p
+  execute w.gov p
+  hs <- query @CusdtHolding w.gov
+  assertMsg "alice has 7" (sum [ h.amount | (_, h) <- hs, h.owner == w.alice ] == 7.0)
+  submitMustFail w.member do createCmd GovernorMintProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, recipient = w.alice, amount = 0.0
+
+testRescueHolding : Script ()
+testRescueHolding = do
+  w <- setup
+  h <- submit w.gov do createCmd CusdtHolding with admin = w.gov, owner = w.alice, amount = 5.0, lock = None
+  hOther <- submit w.other do createCmd CusdtHolding with admin = w.other, owner = w.alice, amount = 5.0, lock = None
+  submitMustFail w.member do createCmd RescueHoldingProposal with governanceParty = w.gov, proposer = w.member, holdingCid = h, reason = ""
+  p <- submit w.member do createCmd RescueHoldingProposal with governanceParty = w.gov, proposer = w.member, holdingCid = h, reason = "reported stolen"
+  executeFails w.alice p
+  execute w.gov p
+  hs <- query @CusdtHolding w.gov
+  assertMsg "the rescued holding is gone" (null hs)
+  -- a holding of another issuer cannot be rescued through this governance party
+  pOther <- submit w.member do createCmd RescueHoldingProposal with governanceParty = w.gov, proposer = w.member, holdingCid = hOther, reason = "wrong issuer"
+  executeFails w.gov pOther
+
+-- the proposal views carry what DecMan shows to the confirming members
+testProposalViews : Script ()
+testProposalViews = do
+  w <- setup
+  now <- getTime
+  p <- submit w.member do
+    createCmd AppointOperatorProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, operator = w.op, allowance = 100.0, validUntil = addRelTime now (days 30)
+  Some c <- queryContractId w.gov p
+  let v = view (toInterface @GovernableAction c)
+  assertMsg "label" (v.actionLabel == "CusdtAppointOperator")
+  assertMsg "governance party" (v.governanceParty == w.gov)
+  assertMsg "proposer" (v.proposer == w.member)
+
+-- helper: appoint through the governor-direct choice (the governed path is tested separately)
+appoint : W -> Decimal -> Script (ContractId CusdtOperatorAuthority)
+appoint w al = do
+  now <- getTime
+  submit w.gov do
+    exerciseCmd w.adm CusdtAdmin_AppointOperator with operator = w.op, allowance = al, validUntil = addRelTime now (days 30)

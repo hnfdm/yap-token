@@ -41,6 +41,7 @@ async function group(name, fn) { console.log(`-- ${name}`); try { await fn(); } 
 
 const [adm] = await n.acs(admin, ADM), [bf] = await n.acs(admin, BMF);
 if (!adm || !bf) throw new Error("CusdtAdmin / CusdtBurnMintFactory not found on the ledger (is 0.7.0 deployed?)");
+let minted = 0;
 const OP = BOB;
 const auths = async () => n.acs(admin, OPA);
 const allowance = async () => { const a = await auths(); return a.length === 1 ? Math.round(Number(a[0].createArgument.allowance) * 1e6) : null; };

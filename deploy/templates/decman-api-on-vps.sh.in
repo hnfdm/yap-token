@@ -8,8 +8,8 @@ NET=splice-validator_splice_validator; VAL=splice-validator-validator-1
 ENVF=/opt/decman/env; CREDS=/opt/decman/creds
 [ -f $ENVF ] || { echo "run decman-install-on-vps.sh first"; exit 1; }
 VENV=$(docker inspect $VAL --format '{{range .Config.Env}}{{println .}}{{end}}')
-CID=$(printf '%s\n' "$VENV" | sed -n 's/^SPLICE_APP_VALIDATOR_AUTH_CLIENT_ID=//p' | head -1)
-CSEC=$(printf '%s\n' "$VENV" | sed -n 's/^SPLICE_APP_VALIDATOR_AUTH_CLIENT_SECRET=//p' | head -1)
+CID=$(printf '%s\n' "$VENV" | sed -n 's/^SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_CLIENT_ID=//p' | head -1)
+CSEC=$(printf '%s\n' "$VENV" | sed -n 's/^SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_CLIENT_SECRET=//p' | head -1)
 UID_=$(printf '%s\n' "$VENV" | sed -n 's/^SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_USER_NAME=//p' | head -1)
 if [ -z "$CID" ] || [ -z "$CSEC" ]; then
   echo "could not find the client id/secret in the validator container env. Variable NAMES that look related:"

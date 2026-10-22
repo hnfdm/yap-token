@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Creates the GovernanceRules contract of the decentralized party cusdt-gov (members = the two validator parties, threshold = the party's own = 2).
+#   on t1:   bash decman-governance-on-vps.sh deploy      (also prints /operator-info)
+#   on t2:   bash decman-governance-on-vps.sh accept      (shows the approved create so you can compare, then accepts)
+#   either:  bash decman-governance-on-vps.sh status
+set -uo pipefail
+. /opt/decman/api.sh
+DEC=cusdt-gov::12205fb8f032bfcfe6ae4ae3a7625629fe9065668ee529e3a785691e1cdce5022c2b
+P1=cryptolampung-testnet-1::122013397e0d9bb71891e884ccd6948a93057115a2fd46a5cf2e4db254844bbd0ea1
+P2=maha-validator-1::1220c4bada4bad3da059bba008b7df9951873bffe647bf46cfcabb8502456aa9dcd7
+case "${1:-}" in
+  deploy)
+    echo "== operator-info =="; OI=$(api GET /operator-info); echo "$OI" | cut -c1-400
+    OP=$(echo "$OI" | head -1 | python3 -c 'import sys,json
+try:
+  j=json.loads(sys.stdin.read()); print(next((v for v in j.values() if isinstance(v,str) and "::" in v),""))
+except Exception: print("")')
+    [ -n "$OP" ] || { echo "no operator party in /operator-info; using the member party of this node as operator_party"; OP=$P1; }
+    echo "operator_party: $OP"
+    BODY=$(python3 - "$DEC" "$P1" "$P2" "$OP" <<'PY'
+import json,sys
+dec,p1,p2,op=sys.argv[1:5]
+print(json.dumps({"decentralized_party_id":dec,"participant_ids":[p1,p2],"participant_parties":[p1,p2],"operator_party":op,
+ "contracts":[{"id":"governance-rules","name":"GovernanceRules","package_id":"#governance-core-v1","module_name":"Governance.Rules","entity_name":"GovernanceRules",
+  "fields":[{"type":"decentralized_party"},{"type":"party_set","parties":[p1,p2]},{"type":"governance_threshold"},{"type":"rel_time","microseconds":1800000000},{"type":"none"}]}]}))
+PY
+)
+    api POST /contracts "$BODY" | cut -c1-500 ;;
+  accept)
+    R=$(api GET /invitations | head -1); echo "$R" | python3 -c 'import sys,json
+j=json.load(sys.stdin)
+for i in j.get("invitations",[]):
+    if i.get("invitation_type")!="Dars": print(json.dumps(i,indent=1)[:2500])'
+    ID=$(echo "$R" | python3 -c 'import sys,json
+j=json.load(sys.stdin)
+for i in j.get("invitations",[]):
+    if i.get("invitation_type")!="Dars" and "ontract" in i.get("invitation_type",""): print(i["id"]); break')
+    [ -n "$ID" ] || { echo "no contracts invitation yet"; exit 1; }
+    echo "Compare the approved create above (GovernanceRules, members = both validator parties). Accepting in 15 s; Ctrl+C to abort."; sleep 15
+    api POST /invitations/accept "{\"id\":\"$ID\"}" ;;
+  status) api GET /workflows | python3 -c 'import sys,json
+t=sys.stdin.read().rsplit("\nHTTP",1)[0]; j=json.loads(t)
+for r in j["runs"]: print(r["instance_name"],r["kind"],r["role"],r["status"],r.get("current_step"),r.get("error",""))'
+    echo "== governance state =="; api GET "/governance/state?party_id=$DEC" | cut -c1-900 ;;
+  *) echo "usage: $0 deploy|accept|status"; exit 1 ;;
+esac

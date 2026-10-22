@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Distributes the DecMan governance DARs (governance-core-v1 0.1.0 + governance-action-v1 0.1.0) to both nodes.
+#   on t1 (coordinator):   bash decman-dars-on-vps.sh distribute
+#   on t2:                 bash decman-dars-on-vps.sh accept        (checks the pinned sha256 in the invitation against the expected ones)
+#   either:                bash decman-dars-on-vps.sh status
+set -uo pipefail
+. /opt/decman/api.sh
+GC_SHA=b8d05903e63288d4114632f41386491cea215e177183514ea032fe35d24a9544
+GA_SHA=4fc7912df4a0aeea3cfcc6ba07c880192a5fa88f7c75ed04b922602461b1e485
+BASE=https://raw.githubusercontent.com/DLC-link/decentralization-manager/main/releases/v1
+T2=maha-validator-1::1220c4bada4bad3da059bba008b7df9951873bffe647bf46cfcabb8502456aa9dcd7
+case "${1:-}" in
+  distribute)
+    mkdir -p /opt/decman/dars && cd /opt/decman/dars
+    curl -sfL -o governance-core-v1-0.1.0.dar $BASE/governance-core-v1-0.1.0.dar
+    curl -sfL -o governance-action-v1-0.1.0.dar $BASE/governance-action-v1-0.1.0.dar
+    echo "$GC_SHA  governance-core-v1-0.1.0.dar" | sha256sum -c - || exit 1
+    echo "$GA_SHA  governance-action-v1-0.1.0.dar" | sha256sum -c - || exit 1
+    python3 - $T2 > /tmp/dars.json <<'PY'
+import base64,json,sys
+fs=["governance-action-v1-0.1.0.dar","governance-core-v1-0.1.0.dar"]
+print(json.dumps({"dar_files":[{"filename":f,"data":base64.b64encode(open(f,"rb").read()).decode()} for f in fs],"peer_ids":[sys.argv[1]]}))
+PY
+    T=$(decman_token)
+    curl -s -w '\nHTTP %{http_code}\n' -X POST http://127.0.0.1:18080/dars/distribute -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d @/tmp/dars.json | cut -c1-400
+    rm -f /tmp/dars.json ;;
+  accept)
+    R=$(api GET /invitations | head -1); echo "$R" | cut -c1-900
+    ID=$(echo "$R" | python3 -c 'import sys,json
+j=json.load(sys.stdin)
+for i in j.get("invitations",[]):
+    if i.get("invitation_type")=="Dars": print(i["id"]); break')
+    [ -n "$ID" ] || { echo "no DARs invitation yet"; exit 1; }
+    for h in $GC_SHA $GA_SHA; do echo "$R" | grep -q "$h" && echo "hash ok: ${h:0:12}…" || { echo "HASH MISMATCH/MISSING for ${h:0:12}… -> NOT accepting"; exit 1; }; done
+    api POST /invitations/accept "{\"id\":\"$ID\"}" ;;
+  status) api GET /workflows | cut -c1-1500; api GET /packages/vetted | python3 -c 'import sys,json
+t=sys.stdin.read().rsplit("\nHTTP",1)[0]
+try:
+  j=json.loads(t); print([p for p in j if "governance" in json.dumps(p)][:4])
+except Exception as e: print(t[:300])' ;;
+  *) echo "usage: $0 distribute|accept|status"; exit 1 ;;
+esac

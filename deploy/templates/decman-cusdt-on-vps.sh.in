@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# cUSDT with the decentralized party cusdt-gov as admin: distribute the DARs, then create the four singleton contracts.
+# Put cusdt-token-@@VERSION@@.dar and cusdt-governance-0.1.0.dar into /opt/decman/dars/ on t1 first (SFTP), then:
+#   t1:  bash decman-cusdt-on-vps.sh dars        t2:  bash decman-cusdt-on-vps.sh accept-dars
+#   t1:  bash decman-cusdt-on-vps.sh contracts   t2:  bash decman-cusdt-on-vps.sh accept-contracts
+#   either: bash decman-cusdt-on-vps.sh status
+set -uo pipefail
+. /opt/decman/api.sh
+TOKEN_SHA=233e29726a8da668dc6bab10f03e4ce7d1f83478e8b78a821c9ea9e03aeda60f
+GOV_SHA=aea2bd32dd7cefd409f428e66a80bdb6b45220d96a3677f0bd14c00c6842f62a
+DEC=cusdt-gov::12205fb8f032bfcfe6ae4ae3a7625629fe9065668ee529e3a785691e1cdce5022c2b
+P1=cryptolampung-testnet-1::122013397e0d9bb71891e884ccd6948a93057115a2fd46a5cf2e4db254844bbd0ea1
+P2=maha-validator-1::1220c4bada4bad3da059bba008b7df9951873bffe647bf46cfcabb8502456aa9dcd7
+OPPARTY=DigitalAsset-UtilityOperator::12202679f2bbe57d8cba9ef3cee847ac8239df0877105ab1f01a77d47477fdce1204
+accept() { # $1 = invitation type
+  R=$(api GET /invitations | head -1); echo "$R" | cut -c1-700
+  ID=$(echo "$R" | python3 -c 'import sys,json;t=sys.argv[1]
+j=json.load(sys.stdin)
+for i in j.get("invitations",[]):
+    if i.get("invitation_type")==t: print(i["id"]); break' "$1")
+  [ -n "$ID" ] || { echo "no $1 invitation yet"; exit 1; }
+  if [ "$1" = Dars ]; then for h in $TOKEN_SHA $GOV_SHA; do echo "$R" | grep -q "$h" && echo "hash ok: ${h:0:12}…" || { echo "HASH MISSING ${h:0:12}… -> NOT accepting"; exit 1; }; done; fi
+  echo "accepting in 10 s (Ctrl+C to abort)"; sleep 10; api POST /invitations/accept "{\"id\":\"$ID\"}"
+}
+case "${1:-}" in
+  dars)
+    cd /opt/decman/dars || exit 1
+    echo "$TOKEN_SHA  cusdt-token-@@VERSION@@.dar" | sha256sum -c - || exit 1
+    echo "$GOV_SHA  cusdt-governance-0.1.0.dar" | sha256sum -c - || exit 1
+    python3 - $P2 > /tmp/cdars.json <<'PY'
+import base64,json,sys
+fs=["cusdt-token-@@VERSION@@.dar","cusdt-governance-0.1.0.dar"]
+print(json.dumps({"dar_files":[{"filename":f,"data":base64.b64encode(open(f,"rb").read()).decode()} for f in fs],"peer_ids":[sys.argv[1]]}))
+PY
+    T=$(decman_token)
+    curl -s -w '\nHTTP %{http_code}\n' -X POST http://127.0.0.1:18080/dars/distribute -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d @/tmp/cdars.json | cut -c1-400
+    rm -f /tmp/cdars.json ;;
+  accept-dars) accept Dars ;;
+  contracts)
+    BODY=$(python3 - "$DEC" "$P1" "$P2" "$OPPARTY" <<'PY'
+import json,sys
+dec,p1,p2,op=sys.argv[1:5]
+c=lambda i,n:{"id":i,"name":n,"package_id":"#cusdt-token","module_name":"CusdtToken","entity_name":n,"fields":[{"type":"decentralized_party"}]}
+print(json.dumps({"decentralized_party_id":dec,"participant_ids":[p1,p2],"participant_parties":[p1,p2],"operator_party":op,
+ "contracts":[c("cusdt-admin","CusdtAdmin"),c("cusdt-transfer-factory","CusdtTransferFactory"),c("cusdt-allocation-factory","CusdtAllocationFactory"),c("cusdt-burnmint-factory","CusdtBurnMintFactory")]}))
+PY
+)
+    api POST /contracts "$BODY" | cut -c1-600 ;;
+  accept-contracts) accept Contracts ;;
+  status) api GET /workflows | python3 -c 'import sys,json
+t=sys.stdin.read().rsplit("\nHTTP",1)[0]; j=json.loads(t)
+for r in j["runs"]: print(r["instance_name"],r["kind"],r["role"],r["status"],r.get("current_step"),r.get("error",""))' ;;
+  *) echo "usage: $0 dars|accept-dars|contracts|accept-contracts|status"; exit 1 ;;
+esac

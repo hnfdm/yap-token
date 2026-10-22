@@ -4,8 +4,8 @@
 set -euo pipefail
 . /opt/decman/api.sh
 case "${1:-}" in
-  t1) BODY='{"peers":[{"participant_id":"maha-validator-1::1220c4bada4bad3da059bba008b7df9951873bffe647bf46cfcabb8502456aa9dcd7","name":"t2","address":"169.58.91.88","port":9000,"public_key":"0267403bbc6c3abc2641d139937b46cb87fbe4c86ea96cc5b12c02f5e9734fe888","party":null}]}' ;;
-  t2) BODY='{"peers":[{"participant_id":"cryptolampung-testnet-1::122013397e0d9bb71891e884ccd6948a93057115a2fd46a5cf2e4db254844bbd0ea1","name":"t1","address":"169.58.91.136","port":9000,"public_key":"026985ec66d261ee9d507557691878d2a6df22909e91fb8bddd5edd705ab6a0437","party":null}]}' ;;
+  t1) BODY='[{"participant_id":"maha-validator-1::1220c4bada4bad3da059bba008b7df9951873bffe647bf46cfcabb8502456aa9dcd7","name":"t2","address":"169.58.91.88","port":9000,"public_key":"0267403bbc6c3abc2641d139937b46cb87fbe4c86ea96cc5b12c02f5e9734fe888","party":null}]' ;;
+  t2) BODY='[{"participant_id":"cryptolampung-testnet-1::122013397e0d9bb71891e884ccd6948a93057115a2fd46a5cf2e4db254844bbd0ea1","name":"t1","address":"169.58.91.136","port":9000,"public_key":"026985ec66d261ee9d507557691878d2a6df22909e91fb8bddd5edd705ab6a0437","party":null}]' ;;
   *) echo "usage: $0 t1|t2   (t1 = run ON t1, adds t2;  t2 = run ON t2, adds t1)"; exit 1 ;;
 esac
 echo "== POST /network-config =="; api POST /network-config "$BODY"

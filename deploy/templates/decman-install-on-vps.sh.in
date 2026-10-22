@@ -36,7 +36,9 @@ docker run -d --name decman --restart unless-stopped --network $NET \
   -p 127.0.0.1:18080:8080 -p 9000:9000 \
   --env-file $DIR/env -v $DIR/data:/home/nonroot/data $IMG
 # port 9000: docker bypasses ufw, so the rule goes into DOCKER-USER (testnet: not persistent across reboots, re-run this script after one)
-iptables -C DOCKER-USER -p tcp --dport 9000 ! -s "$PEER" -j DROP 2>/dev/null || iptables -I DOCKER-USER -p tcp --dport 9000 ! -s "$PEER" -j DROP
+IF=$(ip route show default | awk '{print $5}' | head -1)   # only INBOUND packets from the public interface; the container's own outgoing 9000 connections must pass
+iptables -D DOCKER-USER -p tcp --dport 9000 ! -s "$PEER" -j DROP 2>/dev/null || true
+iptables -C DOCKER-USER -i "$IF" -p tcp --dport 9000 ! -s "$PEER" -j DROP 2>/dev/null || iptables -I DOCKER-USER -i "$IF" -p tcp --dport 9000 ! -s "$PEER" -j DROP
 if ufw status 2>/dev/null | grep -q "Status: active"; then ufw allow from "$PEER" to any port 9000 proto tcp >/dev/null && echo "ufw: allowed $PEER -> 9000"; fi
 sleep 6
 echo "== status =="; docker ps --filter name=decman --format '{{.Names}}  {{.Status}}  {{.Ports}}'

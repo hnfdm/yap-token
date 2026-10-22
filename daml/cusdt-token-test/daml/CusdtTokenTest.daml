@@ -1213,6 +1213,7 @@ testOperatorMintShrinksAllowance = do
   submitMustFail w.carol do opMint w auth w.alice 1.0          -- the old authority is consumed
   submitMustFail w.carol do opMint w auth2 w.alice 60.0000001  -- over the rest (and 7 decimals)
   submitMustFail w.carol do opMint w auth2 w.alice 60.01
+  submitMustFail w.carol do opMint w auth2 w.alice 0.0000001   -- 7 decimals, well inside the allowance
   submitMustFail w.carol do opMint w auth2 w.alice 0.0
   submitMustFail w.carol do opMint w auth2 w.alice (-1.0)
   (_, auth3) <- submit w.carol do opMint w auth2 w.bob 60.0

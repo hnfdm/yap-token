@@ -1,4 +1,4 @@
-// LIVE test of cusdt-token 0.7.0 on the real ledger: operator/governor split (BOB plays the operator, the admin is the governor).
+// LIVE test of cusdt-token 0.7.0 on the real ledger: operator/governor split (a real separate party, cusdt-operator, plays the operator, the admin is the governor).
 //   node scripts/37-live-operator.mjs        (.env.testnet = t1; about 1 minute)
 // Everything created here is burnt again at the end (BurnMint), so the supply ends exactly where it started.
 import { loadEnv } from "./lib.mjs";
@@ -42,7 +42,7 @@ async function group(name, fn) { console.log(`-- ${name}`); try { await fn(); } 
 const [adm] = await n.acs(admin, ADM), [bf] = await n.acs(admin, BMF);
 if (!adm || !bf) throw new Error("CusdtAdmin / CusdtBurnMintFactory not found on the ledger (is 0.7.0 deployed?)");
 let minted = 0;
-const OP = BOB;
+const OP = E.CUSDT_OPERATOR ?? BOB;
 const auths = async () => n.acs(admin, OPA);
 const allowance = async () => { const a = await auths(); return a.length === 1 ? Math.round(Number(a[0].createArgument.allowance) * 1e6) : null; };
 for (const a of await auths()) await tx([admin], [ex(OPA, a.contractId, "Archive")]); // start clean

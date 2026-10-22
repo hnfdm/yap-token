@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Lets DecMan trust the validator's own Keycloak client (so the API works with curl from this VPS, no browser/UI login needed),
+# and installs /opt/decman/api.sh with a small helper:  source /opt/decman/api.sh; api GET /network-config
+# The client id/secret are read from the running validator container, kept in /opt/decman/creds (mode 600), never printed.
+# Save as a file, then:  bash decman-api-on-vps.sh      (run on t1 AND t2; the validator stack is NOT touched)
+set -euo pipefail
+NET=splice-validator_splice_validator; VAL=splice-validator-validator-1
+ENVF=/opt/decman/env; CREDS=/opt/decman/creds
+[ -f $ENVF ] || { echo "run decman-install-on-vps.sh first"; exit 1; }
+VENV=$(docker inspect $VAL --format '{{range .Config.Env}}{{println .}}{{end}}')
+CID=$(printf '%s\n' "$VENV" | sed -n 's/^SPLICE_APP_VALIDATOR_AUTH_CLIENT_ID=//p' | head -1)
+CSEC=$(printf '%s\n' "$VENV" | sed -n 's/^SPLICE_APP_VALIDATOR_AUTH_CLIENT_SECRET=//p' | head -1)
+UID_=$(printf '%s\n' "$VENV" | sed -n 's/^SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_USER_NAME=//p' | head -1)
+if [ -z "$CID" ] || [ -z "$CSEC" ]; then
+  echo "could not find the client id/secret in the validator container env. Variable NAMES that look related:"
+  printf '%s\n' "$VENV" | sed -E 's/=.*//' | grep -i -E 'auth|client|user' ; exit 1
+fi
+( umask 077; printf 'CLIENT_ID=%s\nCLIENT_SECRET=%s\nLEDGER_USER=%s\n' "$CID" "$CSEC" "$UID_" > $CREDS )
+echo "client id: $CID   ledger user: ${UID_:-?}   (secret saved to $CREDS)"
+mint() { curl -s -X POST http://127.0.0.1:8080/realms/canton/protocol/openid-connect/token -d grant_type=client_credentials -d client_id="$CID" --data-urlencode client_secret="$CSEC" -d scope=daml_ledger_api; }
+TOK=$(mint | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+ISS=$(printf '%s' "$TOK" | cut -d. -f2 | python3 -c 'import sys,base64,json;s=sys.stdin.read().strip();s+="="*(-len(s)%4);print(json.loads(base64.urlsafe_b64decode(s))["iss"])')
+echo "token issuer: $ISS"
+BASE=${ISS%/realms/canton}
+sed -i '/^DECPM_KEYCLOAK_/d' $ENVF
+printf 'DECPM_KEYCLOAK_URL=%s\nDECPM_KEYCLOAK_REALM=canton\nDECPM_KEYCLOAK_CLIENT_ID=%s\nDECPM_KEYCLOAK_INTERNAL_URL=http://keycloak:8080\n' "$BASE" "$CID" >> $ENVF
+IMG=$(docker inspect decman --format "{{.Config.Image}}")
+docker rm -f decman >/dev/null
+docker run -d --name decman --restart unless-stopped --network $NET -p 127.0.0.1:18080:8080 -p 9000:9000 --env-file $ENVF -v /opt/decman/data:/home/nonroot/data $IMG >/dev/null
+cat > /opt/decman/api.sh <<'API'
+# usage:  source /opt/decman/api.sh ; api GET /network-config ; api POST /onboarding '{"party_id_prefix":"x",...}'
+. /opt/decman/creds
+decman_token() { curl -s -X POST http://127.0.0.1:8080/realms/canton/protocol/openid-connect/token -d grant_type=client_credentials -d client_id="$CLIENT_ID" --data-urlencode client_secret="$CLIENT_SECRET" -d scope=daml_ledger_api | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])'; }
+api() { local m=$1 p=$2 b=${3:-}; local T; T=$(decman_token)
+  if [ -n "$b" ]; then curl -s -w '\nHTTP %{http_code}\n' -X "$m" "http://127.0.0.1:18080$p" -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d "$b"
+  else curl -s -w '\nHTTP %{http_code}\n' -X "$m" "http://127.0.0.1:18080$p" -H "Authorization: Bearer $T"; fi; }
+API
+sed -i 's#http://127.0.0.1:18080#http://127.0.0.1:18080#' /opt/decman/api.sh
+sleep 6
+echo "== container =="; docker ps --filter name=decman --format '{{.Names}}  {{.Status}}'
+docker logs --tail 6 decman 2>&1 | cut -c1-200
+. /opt/decman/api.sh
+for p in /node-config /node-health /network-config /participants-status /keys/status; do echo "== GET $p =="; api GET $p | cut -c1-700; done

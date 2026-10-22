@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# READ-ONLY survey of a validator host before installing the Decentralization Manager. Changes nothing.
+# Save as a file, then:  bash decman-discover-on-vps.sh      (run on t1 AND on t2, paste both outputs back)
+echo "== host =="; hostname; uname -m; free -m | sed -n 1,2p; df -h / | tail -1
+echo "== docker =="; docker --version; docker compose version 2>/dev/null | head -1
+echo "== containers (name, image, ports) =="; docker ps --format '{{.Names}}\t{{.Image}}\t{{.Ports}}' | sort
+echo "== networks =="; docker network ls --format '{{.Name}}\t{{.Driver}}'
+PART=$(docker ps --format '{{.Names}}' | grep -i participant | head -1)
+echo "== participant container: ${PART:-NOT FOUND} =="
+if [ -n "$PART" ]; then
+  echo "networks of it:"; docker inspect "$PART" --format '{{range $k,$v := .NetworkSettings.Networks}}  {{$k}} {{$v.IPAddress}}{{"\n"}}{{end}}'
+  echo "image:"; docker inspect "$PART" --format '  {{.Config.Image}}'
+  echo "env hints (names only, values hidden):"; docker inspect "$PART" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^(CANTON|ADDITIONAL|LEDGER|AUTH|SPLICE)' | sed -E 's/=.*/=…/' | head -20
+fi
+echo "== is the admin/ledger gRPC port answering inside the docker network? (5001 ledger, 5002 admin) =="
+for p in 5001 5002; do
+  if [ -n "$PART" ]; then timeout 4 docker exec "$PART" sh -c "(echo > /dev/tcp/127.0.0.1/$p) 2>/dev/null && echo '  $p open inside the container' || echo '  $p closed'" 2>/dev/null || echo "  $p: cannot test (no sh in image?)"; fi
+done
+echo "== listening on the host (public ones matter) =="; ss -ltn 2>/dev/null | awk 'NR==1||/:(80|443|8080|9000|5001|5002|5003)\s/' 
+echo "== ufw =="; ufw status 2>/dev/null | head -8 || echo "ufw not installed"
+echo "== can we reach the image registry and see the tag? =="
+docker manifest inspect public.ecr.aws/dlc-link/decentralization-manager:v1.13.0-nonroot >/dev/null 2>&1 && echo "  v1.13.0-nonroot: manifest OK" || echo "  manifest inspect failed (will try a real pull later)"
+echo "== public IP =="; curl -s -m 5 https://ifconfig.me; echo

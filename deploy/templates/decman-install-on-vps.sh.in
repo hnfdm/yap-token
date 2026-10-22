@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Installs the BitSafe/DLC-Link Decentralization Manager (pinned image) NEXT TO a Splice validator, as its own container.
+# It does NOT touch the validator stack (no compose commands, no restart of any validator container).
+# Usage:  bash decman-install-on-vps.sh <THIS_HOST_PUBLIC_IP> <PEER_PUBLIC_IP>
+#   t1:  bash decman-install-on-vps.sh 169.58.91.136 169.58.91.88
+#   t2:  bash decman-install-on-vps.sh 169.58.91.88  169.58.91.136
+# UI = 127.0.0.1:18080 only (open it through an SSH tunnel).  Noise port 9000 = published, but only the peer IP may reach it.
+set -euo pipefail
+SELF=${1:?usage: $0 <this public ip> <peer public ip>}; PEER=${2:?usage: $0 <this public ip> <peer public ip>}
+IMG=public.ecr.aws/dlc-link/decentralization-manager:v1.13.0-nonroot
+NET=splice-validator_splice_validator; PART=splice-validator-participant-1
+DIR=/opt/decman
+docker inspect "$PART" >/dev/null && docker network inspect "$NET" >/dev/null
+mkdir -p $DIR/data && chown -R 65532:65532 $DIR/data
+if [ ! -f $DIR/env ]; then
+  umask 077
+  cat > $DIR/env <<ENV
+DECPM_PORT=8080
+DECPM_NOISE_PORT=9000
+DECPM_PUBLIC_ADDRESS=$SELF
+DECPM_CANTON_ADMIN_HOST=$PART
+DECPM_CANTON_ADMIN_PORT=5002
+DECPM_CANTON_LEDGER_HOST=$PART
+DECPM_CANTON_LEDGER_PORT=5001
+DECPM_CANTON_SYNCHRONIZER=global
+DECPM_CANTON_NETWORK=testnet
+DECPM_DB_ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64 | tr -d '\n=+/')
+DECPM_LOG_FORMAT=text
+ENV
+  echo "created $DIR/env (mode 600; holds the DB encryption key: BACK IT UP together with $DIR/data)"
+fi
+docker pull $IMG
+docker image inspect $IMG --format 'image id: {{.Id}}  digest(s): {{.RepoDigests}}'
+docker rm -f decman >/dev/null 2>&1 || true
+docker run -d --name decman --restart unless-stopped --network $NET \
+  -p 127.0.0.1:18080:8080 -p 9000:9000 \
+  --env-file $DIR/env -v $DIR/data:/home/nonroot/data $IMG
+# port 9000: docker bypasses ufw, so the rule goes into DOCKER-USER (testnet: not persistent across reboots, re-run this script after one)
+iptables -C DOCKER-USER -p tcp --dport 9000 ! -s "$PEER" -j DROP 2>/dev/null || iptables -I DOCKER-USER -p tcp --dport 9000 ! -s "$PEER" -j DROP
+if ufw status 2>/dev/null | grep -q "Status: active"; then ufw allow from "$PEER" to any port 9000 proto tcp >/dev/null && echo "ufw: allowed $PEER -> 9000"; fi
+sleep 6
+echo "== status =="; docker ps --filter name=decman --format '{{.Names}}  {{.Status}}  {{.Ports}}'
+echo "== last log lines =="; docker logs --tail 25 decman 2>&1 | cut -c1-220
+echo "== UI answers locally? =="; curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:18080/
+echo "== firewall rule =="; iptables -S DOCKER-USER | grep 9000 || echo "(no rule found!)"
+echo "open the UI:  ssh -L 18080:127.0.0.1:18080 root@$SELF   then http://localhost:18080"

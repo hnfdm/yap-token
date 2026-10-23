@@ -7,7 +7,7 @@ dependencies:
   - daml-stdlib
   - daml-script
 data-dependencies:
-  - ../cusdt-governance/.daml/dist/cusdt-governance-0.1.0.dar
+  - ../cusdt-governance/.daml/dist/cusdt-governance-0.2.0.dar
   - ../cusdt-token/.daml/dist/cusdt-token-0.7.0.dar
   - ../cusdt-governance/dars/governance-action-v1-0.1.0.dar
   - ../cusdt-token/dars/splice-api-token-allocation-instruction-v1-1.0.0.dar

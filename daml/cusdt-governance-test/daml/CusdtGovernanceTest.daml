@@ -159,6 +159,26 @@ testProposalViews = do
   assertMsg "governance party" (v.governanceParty == w.gov)
   assertMsg "proposer" (v.proposer == w.member)
 
+testBurnTreasury : Script ()
+testBurnTreasury = do
+  w <- setup
+  f <- submit w.gov do createCmd CusdtBurnMintFactory with admin = w.gov
+  t1 <- submit w.gov do createCmd CusdtHolding with admin = w.gov, owner = w.gov, amount = 4.0, lock = None
+  t2 <- submit w.gov do createCmd CusdtHolding with admin = w.gov, owner = w.gov, amount = 6.0, lock = None
+  a1 <- submit w.gov do createCmd CusdtHolding with admin = w.gov, owner = w.alice, amount = 5.0, lock = None
+  let propose cids = submit w.member do
+        createCmd BurnTreasuryProposal with governanceParty = w.gov, proposer = w.member, factoryCid = f, holdingCids = cids
+  submitMustFail w.member do createCmd BurnTreasuryProposal with governanceParty = w.gov, proposer = w.member, factoryCid = f, holdingCids = []
+  pAlice <- propose [a1]                         -- somebody else's holding cannot be burnt by governance alone
+  executeFails w.gov pAlice
+  pMixed <- propose [t1, a1]
+  executeFails w.gov pMixed
+  p <- propose [t1, t2]
+  executeFails w.member p
+  execute w.gov p
+  hs <- query @CusdtHolding w.gov
+  assertMsg "only alice's 5 is left" (sum [ h.amount | (_, h) <- hs ] == 5.0 && length hs == 1)
+
 -- helper: appoint through the governor-direct choice (the governed path is tested separately)
 appoint : W -> Decimal -> Script (ContractId CusdtOperatorAuthority)
 appoint w al = do

@@ -12,8 +12,12 @@
 -- The day-to-day power stays with the operator (see CusdtOperatorAuthority); these are the rare, governed decisions.
 module CusdtGovernance where
 
+import DA.TextMap qualified as TextMap
 import CusdtToken
 import Governance.Action
+import Splice.Api.Token.BurnMintV1 qualified as BM
+import Splice.Api.Token.HoldingV1 qualified as H
+import Splice.Api.Token.MetadataV1 qualified as M
 
 -- Appoint an operator (or add one more authority for an operator that already has one, e.g. a top-up or a second lane).
 template AppointOperatorProposal
@@ -157,3 +161,41 @@ template RescueHoldingProposal
         h <- fetch holdingCid
         assertMsg "the holding belongs to another issuer" (h.admin == governanceParty)
         archive holdingCid
+
+-- Burn tokens that the governance party OWNS (its treasury). The BurnMint factory requires the owner of every burnt holding to be an
+-- actor, so a governed burn can only touch holdings owned by the governance party itself. To retire tokens held by someone else, that
+-- holder first sends them to the governance party (an operator-made preapproval makes that a direct transfer), then this runs.
+template BurnTreasuryProposal
+  with
+    governanceParty : Party
+    proposer        : Party
+    factoryCid      : ContractId CusdtBurnMintFactory
+    holdingCids     : [ContractId CusdtHolding]
+  where
+    signatory proposer
+    observer governanceParty
+    ensure not (null holdingCids)
+
+    interface instance GovernableAction for BurnTreasuryProposal where
+      view = GovernableActionView with
+        governanceParty
+        proposer
+        actionLabel = "CusdtBurnTreasury"
+        description = "Burn " <> show (length holdingCids) <> " cUSDT treasury holding(s) owned by the governance party"
+      executeImpl = do
+        f <- fetch factoryCid
+        assertMsg "the BurnMint factory belongs to another party" (f.admin == governanceParty)
+        hs <- forA holdingCids fetch
+        forA_ hs $ \h -> do
+          assertMsg "only holdings of the governance party's own issuance can be burnt" (h.admin == governanceParty)
+          assertMsg "only holdings OWNED by the governance party can be burnt this way" (h.owner == governanceParty)
+        _ <- exercise (toInterfaceContractId @BM.BurnMintFactory factoryCid) BM.BurnMintFactory_BurnMint with
+          expectedAdmin = governanceParty
+          instrumentId = cusdtInstrumentId governanceParty
+          inputHoldingCids = map (toInterfaceContractId @H.Holding) holdingCids
+          outputs = []
+          extraActors = [governanceParty]
+          extraArgs = M.ExtraArgs with
+            context = M.ChoiceContext with values = TextMap.empty
+            meta = M.emptyMetadata
+        pure ()

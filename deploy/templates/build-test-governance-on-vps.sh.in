@@ -25,6 +25,6 @@ cd $G/dars
 echo "4fc7912df4a0aeea3cfcc6ba07c880192a5fa88f7c75ed04b922602461b1e485 *governance-action-v1-0.1.0.dar" | sha256sum -c - || { echo "CHECKSUM MISMATCH, aborting"; exit 1; }
 echo "== build cusdt-governance =="
 cd $G && dpm install package && dpm build
-DAR=$G/.daml/dist/cusdt-governance-0.1.0.dar; ls -la $DAR; sha256sum $DAR
+DAR=$G/.daml/dist/cusdt-governance-0.2.0.dar; ls -la $DAR; sha256sum $DAR
 echo "== build + run tests =="
 cd $GT && dpm install package && dpm build && dpm test 2>&1 | grep -E "^daml/|rror|failed|Failed" | sed -E 's/, [0-9]+ active contracts, [0-9]+ transactions//'

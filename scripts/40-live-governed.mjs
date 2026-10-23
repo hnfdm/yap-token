@@ -31,7 +31,7 @@ const auth = async () => (await n.acs(GOV, OPA)).filter((a) => a.createArgument.
 const HUMAN = 20 * 60_000;
 const human = (what, lines) => console.log(`\n   >>> HUMAN STEP: ${what}\n${lines.map((l) => "       " + l).join("\n")}\n   (waiting up to 20 minutes ...)\n`);
 async function group(name, fn) { console.log(`-- ${name}`); try { await fn(); } catch (e) { fail++; console.log(`FAIL  ${name} threw: ${short(e).slice(0, 500)}`); } }
-const VOTE = ["t1:  bash decman-vote-on-vps.sh confirm", "t2:  bash decman-vote-on-vps.sh confirm", "t1:  bash decman-vote-on-vps.sh execute"];
+const voteLines = (label) => [`t1:  bash decman-vote-on-vps.sh confirm ${label}`, `t2:  bash decman-vote-on-vps.sh confirm ${label}`, `t1:  bash decman-vote-on-vps.sh execute ${label}`];
 
 const [adm] = await n.acs(GOV, ADM);
 const tf = (await n.acs(GOV, P + "CusdtTransferFactory"))[0];
@@ -52,7 +52,7 @@ await group("governed: appoint the operator (propose -> t1 confirm -> t2 confirm
   if ((await auth()).length === 0) {
     await n.tx([MEMBER], [{ CreateCommand: { templateId: G + "AppointOperatorProposal", createArguments: { governanceParty: GOV, proposer: MEMBER, adminCid: adm.contractId, operator: OP, allowance: amt(20000), validUntil: iso(7_200_000) } } }]);
     ok("t1's validator party created the AppointOperatorProposal", true);
-    human("confirm on both nodes, then execute on t1 (run in /root where decman-vote-on-vps.sh is)", VOTE);
+    human("confirm on both nodes, then execute on t1 (run in /root where decman-vote-on-vps.sh is)", voteLines("CusdtAppointOperator"));
     const w = await waitFor(async () => (await auth())[0] ?? null, HUMAN);
     ok("the operator authority appeared after the governed execution", !!w.v, `${w.s}s`);
   }
@@ -93,7 +93,7 @@ await group("governed: revoke the operator (second proposal, again needs both no
   const [a] = await auth();
   if (!a) { ok("no authority left to revoke", false); return; }
   await n.tx([MEMBER], [{ CreateCommand: { templateId: G + "RevokeOperatorProposal", createArguments: { governanceParty: GOV, proposer: MEMBER, authorityCid: a.contractId } } }]);
-  human("again: confirm on both nodes, then execute on t1", VOTE);
+  human("again: confirm on both nodes, then execute on t1", voteLines("CusdtRevokeOperator"));
   const w = await waitFor(async () => ((await auth()).length === 0 ? true : null), HUMAN);
   ok("the authority is gone after the governed revoke", !!w.v, `${w.s}s`);
   const x = await refused(() => n.tx([OP], [ex(OPA, a.contractId, "CusdtOperator_Mint", { recipient: ALICE, amount: amt(1) })]));

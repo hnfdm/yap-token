@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # A generic vote on the decentralized party cusdt-gov: nothing moves, but it proves propose -> confirm (other node) -> execute works.
 #   t1:  bash decman-vote-on-vps.sh propose "text"       t1 or t2:  bash decman-vote-on-vps.sh list
-#   t2:  bash decman-vote-on-vps.sh confirm              (confirms the single open proposal after showing it)
-#   t1:  bash decman-vote-on-vps.sh execute
+#   t2:  bash decman-vote-on-vps.sh confirm [label]      (confirms the open proposal with that action_label, default the first, after showing it)
+#   t1:  bash decman-vote-on-vps.sh execute [label]
 set -uo pipefail
 . /opt/decman/api.sh
 DEC=cusdt-gov::12205fb8f032bfcfe6ae4ae3a7625629fe9065668ee529e3a785691e1cdce5022c2b
 rules() { api GET "/governance/state?party_id=$DEC" | head -1 | python3 -c 'import sys,json;print(json.load(sys.stdin)["state"]["contract_id"])'; }
+# open_action [label]: the open proposal with that action_label (default: the first one). Several can be open at once, so pass the label.
 open_action() { api GET "/governance/confirmations?party_id=$DEC" | head -1 | python3 -c 'import sys,json
-j=json.load(sys.stdin); d=j.get("domain_actions",[])
-print(json.dumps(d[0]) if d else "")'; }
+j=json.load(sys.stdin); d=j.get("domain_actions",[]); want=sys.argv[1] if len(sys.argv)>1 else ""
+d=[x for x in d if not want or x.get("action_label")==want]
+print(json.dumps(d[0]) if d else "")' "${1:-}"; }
 pj() { python3 -c 'import sys,json
 a=json.loads(sys.argv[1]); print(a.get(sys.argv[2],""))' "$1" "$2"; }
 case "${1:-}" in
@@ -23,7 +25,7 @@ PY
     api POST /governance/propose "$BODY" | cut -c1-500 ;;
   list) api GET "/governance/confirmations?party_id=$DEC" | cut -c1-1500 ;;
   confirm)
-    A=$(open_action); [ -n "$A" ] || { echo "no open proposal visible yet"; exit 1; }
+    A=$(open_action "${2:-}"); [ -n "$A" ] || { echo "no open proposal visible yet"; exit 1; }
     echo "$A" | cut -c1-700; echo "confirming in 10 s (Ctrl+C to abort)"; sleep 10
     BODY=$(python3 - "$DEC" "$(rules)" "$(pj "$A" proposal_cid)" <<'PY'
 import json,sys
@@ -32,7 +34,7 @@ PY
 )
     api POST /governance/confirm "$BODY" | cut -c1-500 ;;
   execute)
-    A=$(open_action); [ -n "$A" ] || { echo "no open proposal"; exit 1; }
+    A=$(open_action "${2:-}"); [ -n "$A" ] || { echo "no open proposal"; exit 1; }
     echo "$A" | cut -c1-900
     BODY=$(python3 - "$DEC" "$(rules)" "$A" <<'PY'
 import json,sys

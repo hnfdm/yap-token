@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Makes the DecMan setup survive a reboot and backs up its state. Does NOT touch the validator stack.
+#   1. systemd unit decman-fw.service: re-applies the inbound-only DOCKER-USER rule for port 9000 after docker starts
+#   2. checks the container restart policy
+#   3. encrypted backup of /opt/decman/{env,data} (NOT creds: that file is re-creatable with decman-api-on-vps.sh and holds the validator client secret)
+# Usage:  bash decman-harden-on-vps.sh <PEER_PUBLIC_IP>        (t1: 169.58.91.88   t2: 169.58.91.136)
+set -euo pipefail
+PEER=${1:?usage: $0 <peer public ip>}
+IF=$(ip route show default | awk '{print $5}' | head -1)
+cat > /usr/local/sbin/decman-fw.sh <<FW
+#!/bin/sh
+# inbound packets on the public interface to :9000 are dropped unless they come from the peer; the container's OWN outgoing connections pass
+iptables -C DOCKER-USER -i $IF -p tcp --dport 9000 ! -s $PEER -j DROP 2>/dev/null || iptables -I DOCKER-USER -i $IF -p tcp --dport 9000 ! -s $PEER -j DROP
+FW
+chmod 755 /usr/local/sbin/decman-fw.sh
+cat > /etc/systemd/system/decman-fw.service <<UNIT
+[Unit]
+Description=DecMan Noise port firewall rule (DOCKER-USER)
+After=docker.service network-online.target
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/decman-fw.sh
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload && systemctl enable --now decman-fw.service
+echo "== firewall rule =="; iptables -S DOCKER-USER | grep 9000 || echo "(missing!)"
+echo "== restart policy =="; docker inspect decman --format '{{.HostConfig.RestartPolicy.Name}}'
+echo "== encrypted backup =="
+TS=$(date +%Y%m%d-%H%M%S); OUT=/root/decman-backup-$TS.tgz.enc
+read -r -s -p "backup passphrase (keep it OFF this server): " PW; echo
+read -r -s -p "again: " PW2; echo
+[ "$PW" = "$PW2" ] && [ -n "$PW" ] || { echo "passphrases differ or empty"; exit 1; }
+tar czf - -C /opt/decman env data | DECMAN_PW="$PW" openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:DECMAN_PW -out "$OUT"
+chmod 600 "$OUT"
+N=$(DECMAN_PW="$PW" openssl enc -d -aes-256-cbc -pbkdf2 -pass env:DECMAN_PW -in "$OUT" | tar tzf - | wc -l)
+echo "backup: $OUT  ($(stat -c %s "$OUT") bytes, $N entries inside)"; DECMAN_PW="$PW" openssl enc -d -aes-256-cbc -pbkdf2 -pass env:DECMAN_PW -in "$OUT" | tar tzf - | head -8
+sha256sum "$OUT"
+echo "Copy it to your PC (SFTP) and keep the passphrase off this server."

@@ -12,6 +12,7 @@
 -- The day-to-day power stays with the operator (see CusdtOperatorAuthority); these are the rare, governed decisions.
 module CusdtGovernance where
 
+import DA.Foldable (forA_)
 import DA.TextMap qualified as TextMap
 import CusdtToken
 import Governance.Action

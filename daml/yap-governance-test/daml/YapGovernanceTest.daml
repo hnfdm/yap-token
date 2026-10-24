@@ -262,7 +262,7 @@ testAllocationProposal = do
   assertMsg "the treasury kept 200" (sum [ h.amount | (_, h) <- hs, h.owner == w.gov ] == 200.0)
   vs <- query @YapVesting w.gov
   assertMsg "two vesting schedules" (length vs == 2)
-  -- the vesting behaves: nothing for the cliff-delayed one before its cliff, about half for alice after 5 days
+  -- the vesting behaves: nothing for the cliff-delayed one before its cliff, 55% for alice after 5.5 days
   passTime (hours 12)
   [(otherV, _)] <- pure [ (c, v) | (c, v) <- vs, v.beneficiary == w.other ]
   submitMustFail w.other do exerciseCmd otherV YapVesting_Claim
@@ -270,7 +270,7 @@ testAllocationProposal = do
   passTime (days 5)
   (got, _) <- submit w.alice do exerciseCmd aliceV YapVesting_Claim
   Some g <- queryContractId w.gov got
-  assertMsg ("alice claimed about half, got " <> show g.amount) (g.amount > 140.0 && g.amount < 160.0)
+  assertMsg ("alice claimed 55% (5.5 of 10 days) of 300 = 165, got " <> show g.amount) (g.amount == 165.0)
 
 -- helper: appoint through the governor-direct choice (the governed path is tested separately)
 appoint : W -> Decimal -> Script (ContractId YapOperatorAuthority)

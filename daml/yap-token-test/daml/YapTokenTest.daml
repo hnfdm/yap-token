@@ -1403,8 +1403,8 @@ settleV2 c actors = exerciseCmd c A2.Allocation_Settle with actors, extraTransfe
 cancelV2 : ContractId A2.Allocation -> [Party] -> Commands A2.AllocationResult
 cancelV2 c actors = exerciseCmd c A2.Allocation_Cancel with actors, extraArgs = noExtra
 
-withdrawV2 : ContractId A2.Allocation -> [Party] -> Commands A2.AllocationResult
-withdrawV2 c actors = exerciseCmd c A2.Allocation_Withdraw with actors, extraArgs = noExtra
+withdrawAllocV2 : ContractId A2.Allocation -> [Party] -> Commands A2.AllocationResult
+withdrawAllocV2 c actors = exerciseCmd c A2.Allocation_Withdraw with actors, extraArgs = noExtra
 
 -- alice pays 10 to bob (leg L1), bob pays 3 to alice (leg L2): alice's NET outflow is 7
 testV2NetSettlement : Script ()
@@ -1489,9 +1489,9 @@ testV2NonCommittedWithdraw = do
   ha <- mint w w.alice 20.0
   let si = settlementInfo w.carol "wd-1"
   a <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 5.0] (Some (addRelTime now (days 1))) False [ha]
-  submitMustFail w.bob (withdrawV2 a [w.bob])                    -- only the authorizer
-  submitMustFail w.carol (withdrawV2 a [w.carol])
-  _ <- submit w.alice (withdrawV2 a [w.alice])
+  submitMustFail w.bob (withdrawAllocV2 a [w.bob])                    -- only the authorizer
+  submitMustFail w.carol (withdrawAllocV2 a [w.carol])
+  _ <- submit w.alice (withdrawAllocV2 a [w.alice])
   expectBalance (balance w w.alice) 20.0 "funds released at once"
   locked <- lockedOf w w.alice
   assertMsg "nothing locked any more" (null locked)
@@ -1506,7 +1506,7 @@ testV2CommittedAllocation = do
   let si = settlementInfo w.carol "commit-1"
   let deadline = addRelTime now (days 1)
   a <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 5.0] (Some deadline) True [ha]
-  submitMustFail w.alice (withdrawV2 a [w.alice])                -- committed: no withdrawal before the deadline
+  submitMustFail w.alice (withdrawAllocV2 a [w.alice])                -- committed: no withdrawal before the deadline
   submitMustFail w.bob (cancelV2 a [w.bob])                      -- cancel: executors only
   submitMustFail (actAs [w.admin, w.alice]) (cancelV2 a [w.admin, w.alice])   -- the admin only after the deadline
   _ <- submit w.carol (cancelV2 a [w.carol])                     -- the executor can always release it
@@ -1516,7 +1516,7 @@ testV2CommittedAllocation = do
   a2 <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 5.0] (Some (addRelTime now (days 2))) True (map fst hs2)
   passTime (days 3)
   submitMustFail w.carol (settleV2 a2 [w.admin, w.carol])
-  _ <- submit w.alice (withdrawV2 a2 [w.alice])
+  _ <- submit w.alice (withdrawAllocV2 a2 [w.alice])
   expectBalance (balance w w.alice) 20.0 "withdrawn after the deadline"
 
 testV2ExpiredAllocationCanBeDiscarded : Script ()
@@ -1532,7 +1532,7 @@ testV2ExpiredAllocationCanBeDiscarded = do
   -- the lock has expired, so the owner may have spent the locked funds: the allocation can still be dropped
   [(l, _)] <- lockedOf w w.alice
   _ <- submit w.alice do exerciseCmd l YapHolding_Burn
-  submitMustFail w.alice (withdrawV2 a [w.alice])                -- the backing holding is gone
+  submitMustFail w.alice (withdrawAllocV2 a [w.alice])                -- the backing holding is gone
   submit w.alice do exerciseCmd aV2 YapAllocationV2_DiscardExpired
   rest <- query @YapAllocationV2 w.admin
   assertMsg "allocation dropped" (null rest)

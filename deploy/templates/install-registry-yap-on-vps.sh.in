@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Installs a SECOND registry for the YAP token (admin = the decentralized party cusdt-gov) NEXT TO the running cUSDT registry on t1.
+# The old service (cusdt-registry, 127.0.0.1:8787, /opt/cusdt-registry) is NOT touched. New: service yap-registry, 127.0.0.1:8788,
+# /opt/yap-registry, /etc/yap-registry.env (mode 600, secrets copied from /etc/cusdt-registry.env, never printed).
+#   Part 1 (always):   bash install-registry-yap-on-vps.sh
+#   Part 2 (optional): DOMAIN=yap-registry-testnet.cryptolampung.space bash install-registry-yap-on-vps.sh   (needs the A record first)
+set -euo pipefail
+[ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
+ADMIN=cusdt-gov::12205fb8f032bfcfe6ae4ae3a7625629fe9065668ee529e3a785691e1cdce5022c2b
+D=/opt/yap-registry; OLDENV=/etc/cusdt-registry.env; ENVF=/etc/yap-registry.env
+[ -f $OLDENV ] || { echo "$OLDENV not found: the cUSDT registry must be installed on this box (we copy its Keycloak settings)"; exit 1; }
+node -e 'process.exit(+process.versions.node.split(".")[0] >= 18 ? 0 : 1)' || { echo "node >= 18 required"; exit 1; }
+id yapreg >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin yapreg
+mkdir -p $D
+[ -f $D/server.mjs ] && cp $D/server.mjs $D/server.mjs.bak-$(date +%Y%m%d-%H%M%S)
+cat > $D/server.mjs <<'EOF_JS'
+@@EMBED registry/src/server.mjs@@
+EOF_JS
+chmod 644 $D/server.mjs
+node --check $D/server.mjs && echo "syntax ok"
+
+# env: everything about the ledger/Keycloak is copied from the cUSDT registry; only port, admin, package and V2 differ
+( umask 077
+  grep -E '^(LEDGER_URL|KC_TOKEN_URL|KC_CLIENT_ID|KC_CLIENT_SECRET|KC_SCOPE|NODE_TLS_REJECT_UNAUTHORIZED)=' $OLDENV > $ENVF
+  printf 'HOST=127.0.0.1\nPORT=8788\nCUSDT_ADMIN_PARTY=%s\nCUSDT_PACKAGE_NAME=#yap-token\nCUSDT_ENABLE_V2=1\n' "$ADMIN" >> $ENVF )
+chmod 600 $ENVF; chown root:root $ENVF
+grep -q KC_CLIENT_SECRET= $ENVF || { echo "no KC_CLIENT_SECRET copied, check $OLDENV"; exit 1; }
+
+cat > /etc/systemd/system/yap-registry.service <<'EOF_UNIT'
+[Unit]
+Description=YAP token registry (CIP-56 off-ledger API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=yapreg
+EnvironmentFile=/etc/yap-registry.env
+ExecStart=/usr/bin/env node /opt/yap-registry/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF_UNIT
+systemctl daemon-reload; systemctl enable yap-registry >/dev/null 2>&1; systemctl restart yap-registry; sleep 3
+systemctl is-active yap-registry
+echo "== YAP registry health =="; curl -s localhost:8788/health; echo
+echo "== instrument info (symbol must be YAP, V2 advertised) =="; curl -s localhost:8788/registry/metadata/v1/info | head -c 500; echo
+echo "== the old cUSDT registry is untouched =="; systemctl is-active cusdt-registry; curl -s localhost:8787/health; echo
+echo "== the YAP singletons are visible to the registry (a transfer-factory answer proves it) =="
+curl -s -o /dev/null -w 'transfer-factory with an empty body -> HTTP %{http_code} (400 = route + admin ok)\n' -X POST -H 'Content-Type: application/json' -d '{}' localhost:8788/registry/transfer-instruction/v1/transfer-factory
+
+# ---- part 2: public HTTPS under its own name (optional) ----
+if [ -n "${DOMAIN:-}" ]; then
+  PUBIP=$(curl -4 -fsS https://api.ipify.org); DNSIP=$(getent ahostsv4 "$DOMAIN" | awk '{print $1; exit}' || true)
+  echo "VPS public IP: $PUBIP   $DOMAIN resolves to: ${DNSIP:-<nothing>}"
+  [ "$PUBIP" = "$DNSIP" ] || { echo "DNS does not point at this VPS yet; part 1 is done, re-run with DOMAIN=... later"; exit 0; }
+  apt-get install -y certbot >/dev/null; mkdir -p /var/www/acme
+  CONF=/etc/nginx/sites-available/zz-yap-registry-public.conf; [ -e "$CONF" ] && cp "$CONF" "$CONF.bak.$(date +%s)"
+  printf 'limit_req_zone $binary_remote_addr zone=yap_registry:10m rate=20r/s;\n' > /etc/nginx/conf.d/yap-registry-limit.conf
+  cat > "$CONF" <<EOF_HTTP
+server {
+    listen $PUBIP:80;
+    server_name $DOMAIN;
+    location /.well-known/acme-challenge/ { root /var/www/acme; }
+    location / { return 301 https://\$host\$request_uri; }
+}
+EOF_HTTP
+  ln -sf "$CONF" /etc/nginx/sites-enabled/zz-yap-registry-public.conf
+  nginx -t && systemctl reload nginx
+  certbot certonly --webroot -w /var/www/acme -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email
+  test -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+  cat >> "$CONF" <<EOF_HTTPS
+# --- https ---
+server {
+    listen 443 ssl;   # wildcard listen on purpose (an IP-specific listen would take the whole IP:443 group from the other server blocks)
+    server_name $DOMAIN;
+    ssl_certificate     /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    client_max_body_size 1m;
+    location / {
+        limit_req zone=yap_registry burst=40 nodelay;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_pass http://127.0.0.1:8788;
+    }
+}
+EOF_HTTPS
+  if nginx -t; then systemctl reload nginx; else echo "nginx -t failed, removing the HTTPS block"; sed -i '/^# --- https ---$/,$d' "$CONF"; exit 1; fi
+  echo "== check: the new name, then the OLD names must still answer =="
+  curl -fsS "https://$DOMAIN/health"; echo
+  curl -fsS https://registry-testnet.cryptolampung.space/health; echo
+  for h in ledger-testnet auth-testnet; do curl -sk -o /dev/null -w "$h.cryptolampung.site -> HTTP %{http_code}\n" --resolve $h.cryptolampung.site:443:127.0.0.1 https://$h.cryptolampung.site/; done
+fi

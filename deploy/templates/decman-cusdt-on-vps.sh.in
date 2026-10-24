@@ -6,8 +6,8 @@
 #   either: bash decman-cusdt-on-vps.sh status
 set -uo pipefail
 . /opt/decman/api.sh
-TOKEN_SHA=233e29726a8da668dc6bab10f03e4ce7d1f83478e8b78a821c9ea9e03aeda60f
-GOV_SHA=7b33fab21e6af65c2ae6b1e5455d1d51bed33c25561f33dae6484a9b2769d9a6
+TOKEN_SHA=f0a01ef85b4be4126f269dee46922a3c7ca991bcc03b6256917d2178ac304d88
+GOV_SHA=696648d9db898460dbd88d497d9fa39edfaa611f3d939e3ab823734ecdaf15b4
 DEC=cusdt-gov::12205fb8f032bfcfe6ae4ae3a7625629fe9065668ee529e3a785691e1cdce5022c2b
 P1=cryptolampung-testnet-1::122013397e0d9bb71891e884ccd6948a93057115a2fd46a5cf2e4db254844bbd0ea1
 P2=maha-validator-1::1220c4bada4bad3da059bba008b7df9951873bffe647bf46cfcabb8502456aa9dcd7

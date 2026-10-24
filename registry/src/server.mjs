@@ -27,6 +27,12 @@ if (ENABLE_V2) {
   SUPPORTED_APIS["splice-api-token-holding-v2"] = 1;
   SUPPORTED_APIS["splice-api-token-transfer-instruction-v2"] = 1;
 }
+// Allocation V2 needs yap-token >= 0.9.0 AND factory contracts created with that version (YapAllocationFactory with the V2 instance, YapSettlementFactory).
+const ENABLE_ALLOCATION_V2 = process.env.CUSDT_ENABLE_ALLOCATION_V2 === "1";
+if (ENABLE_ALLOCATION_V2) {
+  SUPPORTED_APIS["splice-api-token-allocation-v2"] = 1;
+  SUPPORTED_APIS["splice-api-token-allocation-instruction-v2"] = 1;
+}
 
 const INSTRUMENT = {
   id: SYMBOL, name: "YAP (test)", symbol: SYMBOL, decimals: 6,
@@ -54,6 +60,7 @@ async function ledgerToken() {
 const singletonCache = new Map();
 const findFactory = () => findSingleton("YapTransferFactory");
 const findAllocationFactory = () => findSingleton("YapAllocationFactory");
+const findSettlementFactory = () => findSingleton("YapSettlementFactory");
 
 async function findSingleton(tpl) {
   const hit = singletonCache.get(tpl);
@@ -75,15 +82,16 @@ async function findSingleton(tpl) {
   if (!res.ok) throw new Error(`ACS ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const parsed = JSON.parse(await res.text());
   const items = Array.isArray(parsed) ? parsed : (parsed.activeContracts ?? []);
+  // after an upgrade (a new package version) an old and a new singleton can coexist: take the newest one (highest ledger offset)
+  let best = null;
   for (const it of items) {
     const a = it.contractEntry?.JsActiveContract;
     const ce = a?.createdEvent;
-    if (ce?.contractId && ce.createdEventBlob) {
-      const d = { templateId: ce.templateId, contractId: ce.contractId, createdEventBlob: ce.createdEventBlob, synchronizerId: a.synchronizerId ?? "" };
-      singletonCache.set(tpl, { d, ts: Date.now() });
-      return d;
+    if (ce?.contractId && ce.createdEventBlob && (!best || Number(ce.offset ?? 0) > best.off)) {
+      best = { off: Number(ce.offset ?? 0), d: { templateId: ce.templateId, contractId: ce.contractId, createdEventBlob: ce.createdEventBlob, synchronizerId: a.synchronizerId ?? "" } };
     }
   }
+  if (best) { singletonCache.set(tpl, { d: best.d, ts: Date.now() }); return best.d; }
   throw new Error(`${tpl} contract not found on ledger`);
 }
 
@@ -242,6 +250,30 @@ async function route(req, res) {
   // allocation-v1: no extra context needed for any choice
   if (m === "POST" && /^\/registry\/allocations\/v1\/[^/]+\/choice-contexts\/(execute-transfer|withdraw|cancel)$/.test(p))
     return send(res, 200, emptyContext);
+
+  // allocation-instruction-v2 / allocation-v2 (Token Standard V2): allocations are created directly (no instruction step), so the
+  // instruction choice contexts are empty; the factories travel as disclosed contracts.
+  if (m === "POST" && p === "/registry/allocation-instruction/v2/allocation-factory") {
+    const b = await body(req);
+    const al = b.choiceArguments?.allocation;
+    if (!al || typeof al !== "object" || Array.isArray(al)) throw new HttpError(400, "choiceArguments.allocation required");
+    if (al.admin !== ADMIN) throw new HttpError(404, "unknown instrument admin");
+    plainOwner(al.authorizer, "allocation.authorizer");
+    for (const s of Array.isArray(al.transferLegSides) ? al.transferLegSides : [])
+      if (s?.instrumentId !== SYMBOL) throw new HttpError(404, "unknown instrument");
+    const d = await findAllocationFactory();
+    return send(res, 200, { factoryId: d.contractId, choiceContext: { choiceContextData: { values: {} }, disclosedContracts: [d] } });
+  }
+  if (m === "POST" && p === "/registry/allocation/v2/settlement-factory") {
+    const b = await body(req);
+    const legs = b.choiceArguments?.transferLegs;
+    if (!Array.isArray(legs) || legs.length === 0) throw new HttpError(400, "choiceArguments.transferLegs required");
+    for (const l of legs) if (l?.instrumentId !== SYMBOL) throw new HttpError(404, "unknown instrument");
+    const d = await findSettlementFactory();
+    return send(res, 200, { factoryId: d.contractId, choiceContext: { choiceContextData: { values: {} }, disclosedContracts: [d] } });
+  }
+  if (m === "POST" && /^\/registry\/allocation-instruction\/v2\/[^/]+\/choice-contexts\/(accept|withdraw)$/.test(p)) return send(res, 200, emptyContext);
+  if (m === "POST" && /^\/registry\/allocations\/v2\/[^/]+\/choice-contexts\/(withdraw|cancel)$/.test(p)) return send(res, 200, emptyContext);
 
   const cc = p.match(/^\/registry\/transfer-instruction\/v1\/([^/]+)\/choice-contexts\/(accept|reject|withdraw)$/);
   if (m === "POST" && cc) return send(res, 200, emptyContext);

@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ADMIN = "cusdt-admin::1220aaaa", ALICE = "alice::1220aaaa", BOB = "bob::1220aaaa", CAROL = "carol::1220aaaa";
-const ctr = (tpl, id, arg = {}) => ({ contractEntry: { JsActiveContract: { synchronizerId: "sync::1", createdEvent: { contractId: id, createdEventBlob: "blob-" + id, templateId: `pkg:YapToken:${tpl}`, createArgument: arg } } } });
+const ctr = (tpl, id, arg = {}, offset = 0) => ({ contractEntry: { JsActiveContract: { synchronizerId: "sync::1", createdEvent: { contractId: id, createdEventBlob: "blob-" + id, templateId: `pkg:YapToken:${tpl}`, createArgument: arg, offset } } } });
 
 const mock = createServer((req, res) => {
   let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => {
@@ -18,7 +18,8 @@ const mock = createServer((req, res) => {
       const body = JSON.parse(b || "{}");
       const tpl = body.eventFormat?.filtersByParty?.[ADMIN]?.cumulative?.[0]?.identifierFilter?.TemplateFilter?.value?.templateId ?? "";
       if (tpl.endsWith("YapTransferFactory")) return j([ctr("YapTransferFactory", "factory-1")]);
-      if (tpl.endsWith("YapAllocationFactory")) return j([ctr("YapAllocationFactory", "afactory-1")]);
+      if (tpl.endsWith("YapAllocationFactory")) return j([ctr("YapAllocationFactory", "afactory-1", {}, 9), ctr("YapAllocationFactory", "afactory-old", {}, 5)]);
+      if (tpl.endsWith("YapSettlementFactory")) return j([ctr("YapSettlementFactory", "sfactory-1", {}, 9)]);
       if (tpl.endsWith("YapTransferPreapproval")) return j([ctr("YapTransferPreapproval", "pre-bob", { admin: ADMIN, receiver: BOB })]);
       return j([]);
     }
@@ -29,7 +30,7 @@ await new Promise((r) => mock.listen(0, "127.0.0.1", r));
 const mport = mock.address().port, RPORT = 18787;
 const child = spawn(process.execPath, [join(here, "..", "src", "server.mjs")], { env: { ...process.env, HOST: "127.0.0.1", PORT: String(RPORT),
   LEDGER_URL: `http://127.0.0.1:${mport}`, KC_TOKEN_URL: `http://127.0.0.1:${mport}/openid-connect/token`, KC_CLIENT_ID: "c", KC_CLIENT_SECRET: "s",
-  CUSDT_ADMIN_PARTY: ADMIN, CUSDT_ENABLE_V2: process.env.CUSDT_ENABLE_V2 ?? "1" }, stdio: ["ignore", "ignore", "inherit"] });
+  CUSDT_ADMIN_PARTY: ADMIN, CUSDT_ENABLE_V2: process.env.CUSDT_ENABLE_V2 ?? "1", CUSDT_ENABLE_ALLOCATION_V2: process.env.CUSDT_ENABLE_ALLOCATION_V2 ?? "1" }, stdio: ["ignore", "ignore", "inherit"] });
 await new Promise((r) => setTimeout(r, 900));
 
 let pass = 0, fail = 0;
@@ -67,6 +68,27 @@ try {
   r = await call("POST", "/registry/transfer-instruction/v2/cid123/choice-contexts/bogus", {}); ok("V2 unknown choice -> 404", r.status === 404);
   r = await call("POST", `/api/token-standard/v0/registrars/${encodeURIComponent(ADMIN)}${F2}`, t2(acct(ALICE), acct(CAROL))); ok("V2 through the Utility-style alias path", r.status === 200 && r.j.transferKind === "offer");
   r = await call("GET", "/registry/metadata/v1/info"); ok("V2 advertised when CUSDT_ENABLE_V2=1", r.j.supportedApis["splice-api-token-transfer-instruction-v2"] === 1 && r.j.supportedApis["splice-api-token-holding-v2"] === 1);
+
+  // Allocation V2: factories, choice contexts, validation, and "the newest singleton wins"
+  const side = (id, other) => ({ transferLegId: "L1", side: "SenderSide", otherside: acct(other), amount: "1", instrumentId: id, meta: { values: {} } });
+  const alloc = (extra = {}) => ({ choiceArguments: { allocation: { admin: ADMIN, authorizer: acct(ALICE), transferLegSides: [side("YAP", BOB)], settlementDeadline: null, nextIterationFunding: null, committed: false, meta: { values: {} }, ...extra } } });
+  const AF2 = "/registry/allocation-instruction/v2/allocation-factory", SF2 = "/registry/allocation/v2/settlement-factory";
+  r = await call("POST", AF2, alloc()); ok("allocation V2 factory answers with the NEWEST factory and discloses it", r.status === 200 && r.j.factoryId === "afactory-1" && r.j.choiceContext.disclosedContracts.length === 1 && r.j.choiceContext.disclosedContracts[0].contractId === "afactory-1");
+  r = await call("POST", AF2, alloc({ admin: "someone-else::1" })); ok("allocation V2 for another admin -> 404", r.status === 404);
+  r = await call("POST", AF2, alloc({ transferLegSides: [side("OTHER", BOB)] })); ok("allocation V2 with another instrument -> 404", r.status === 404);
+  r = await call("POST", AF2, alloc({ authorizer: acct(ALICE, { provider: ADMIN }) })); ok("allocation V2 authorizer with a provider -> 400", r.status === 400);
+  r = await call("POST", AF2, alloc({ authorizer: ALICE })); ok("allocation V2 authorizer as a plain string -> 400", r.status === 400);
+  r = await call("POST", AF2, { choiceArguments: {} }); ok("allocation V2 without an allocation -> 400", r.status === 400);
+  const batch = (legs) => ({ choiceArguments: { settlement: { executors: [ADMIN], id: "s1", cid: null, meta: { values: {} } }, transferLegs: legs, allocations: [], actors: [ADMIN], extraArgs: { context: { values: {} }, meta: { values: {} } } } });
+  const leg = (id) => ({ transferLegId: "L1", sender: acct(ALICE), receiver: acct(BOB), amount: "1", instrumentId: id, meta: { values: {} } });
+  r = await call("POST", SF2, batch([leg("YAP")])); ok("settlement factory answers and discloses it", r.status === 200 && r.j.factoryId === "sfactory-1" && r.j.choiceContext.disclosedContracts.length === 1);
+  r = await call("POST", SF2, batch([leg("OTHER")])); ok("settlement factory for another instrument -> 404", r.status === 404);
+  r = await call("POST", SF2, batch([])); ok("settlement factory without legs -> 400", r.status === 400);
+  for (const [path, label] of [["allocation-instruction/v2/cid1/choice-contexts/accept", "instruction accept"], ["allocation-instruction/v2/cid1/choice-contexts/withdraw", "instruction withdraw"], ["allocations/v2/cid1/choice-contexts/withdraw", "allocation withdraw"], ["allocations/v2/cid1/choice-contexts/cancel", "allocation cancel"]]) {
+    r = await call("POST", `/registry/${path}`, {}); ok(`V2 ${label} context is empty`, r.status === 200 && r.j.disclosedContracts.length === 0);
+  }
+  r = await call("POST", "/registry/allocations/v2/cid1/choice-contexts/settle", {}); ok("unknown allocation V2 choice -> 404", r.status === 404);
+  r = await call("GET", "/registry/metadata/v1/info"); ok("allocation V2 advertised when CUSDT_ENABLE_ALLOCATION_V2=1", r.j.supportedApis["splice-api-token-allocation-v2"] === 1 && r.j.supportedApis["splice-api-token-allocation-instruction-v2"] === 1);
 } finally { child.kill(); mock.close(); }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

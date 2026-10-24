@@ -40,8 +40,8 @@ async function tx(actAs, commands, disclosed = [], see = [ALICE, BOB]) {
 async function mintToAlice(count) {                     // 1-micro holdings for the attacker; returns their contract ids
   const [adm] = await acs(token, admin, T.ADMIN); const cids = [];
   for (let left = count; left > 0;) { const k = Math.min(50, left);
-    const r = await tx([admin], Array.from({ length: k }, () => ({ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "CusdtAdmin_Mint", choiceArgument: { recipient: ALICE, amount: "0.0000010000" } } })), [], [admin]);
-    cids.push(...r.exercised.filter((e) => e.choice === "CusdtAdmin_Mint").map((e) => e.exerciseResult)); left -= k; }
+    const r = await tx([admin], Array.from({ length: k }, () => ({ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "YapAdmin_Mint", choiceArgument: { recipient: ALICE, amount: "0.0000010000" } } })), [], [admin]);
+    cids.push(...r.exercised.filter((e) => e.choice === "YapAdmin_Mint").map((e) => e.exerciseResult)); left -= k; }
   return cids;
 }
 /** alice sends 1 micro to bob once per source holding, BATCH per transaction */
@@ -69,11 +69,11 @@ try {
   console.log("\n-- A. direct dust spam (bob has a preapproval)");
   const [adm] = await acs(token, admin, T.ADMIN);
   const pre0 = (await acs(token, admin, T.PRE)).filter((c) => c.createArgument.receiver === BOB);
-  if (!pre0.length) await tx([admin], [{ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver: BOB } } }], [], [admin]);
+  if (!pre0.length) await tx([admin], [{ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "YapAdmin_CreatePreapproval", choiceArgument: { receiver: BOB } } }], [], [admin]);
   bobHadPre = pre0.length > 0;
   const srcA = await mintToAlice(N); expected += N;
   const a = await sendMany(srcA);
-  const bobDust = a.created.filter((c) => c.templateId.endsWith(":CusdtHolding") && c.createArgument?.owner === BOB);
+  const bobDust = a.created.filter((c) => c.templateId.endsWith(":YapHolding") && c.createArgument?.owner === BOB);
   dustCids.push(...bobDust.map((c) => c.contractId));
   note(`attacker: ${a.txs} transactions, paidTrafficCost ${a.cost} for ${bobDust.length} dust holdings at bob (~${Math.round(a.cost / Math.max(1, bobDust.length))} per holding)`);
   ok(`the preapproval let ${bobDust.length} unrequested holdings land at bob`, bobDust.length === N);
@@ -102,10 +102,10 @@ try {
   if (PHASES.includes("B")) {
   console.log("\n-- B. instruction spam (no preapproval at bob)");
   for (const c of (await acs(token, admin, T.PRE)).filter((c) => c.createArgument.receiver === BOB))
-    await tx([BOB], [{ ExerciseCommand: { templateId: T.PRE, contractId: c.contractId, choice: "CusdtTransferPreapproval_Cancel", choiceArgument: {} } }], [], [BOB]);
+    await tx([BOB], [{ ExerciseCommand: { templateId: T.PRE, contractId: c.contractId, choice: "YapTransferPreapproval_Cancel", choiceArgument: {} } }], [], [BOB]);
   const srcB = await mintToAlice(N); expected += N;
   const b = await sendMany(srcB);
-  const insts = b.created.filter((c) => c.templateId.endsWith(":CusdtTransferInstruction"));
+  const insts = b.created.filter((c) => c.templateId.endsWith(":YapTransferInstruction"));
   instrCids.push(...insts.map((c) => c.contractId));
   note(`attacker: ${b.txs} transactions, paidTrafficCost ${b.cost} for ${insts.length} pending offers (~${Math.round(b.cost / Math.max(1, insts.length))} each); the 1-micro funds stay recoverable by the attacker`);
   ok(`${insts.length} unrequested pending offers now sit at bob`, insts.length === N);
@@ -121,7 +121,7 @@ try {
     catch (e) { note("withdraw batch failed: " + short(e).slice(0, 120)); }
   }
   for (const c of (await acs(token, admin, T.PRE).catch(() => [])).filter((c) => c.createArgument.receiver === BOB))
-    if (bobHadPre === false) await tx([BOB], [{ ExerciseCommand: { templateId: T.PRE, contractId: c.contractId, choice: "CusdtTransferPreapproval_Cancel", choiceArgument: {} } }], [], [BOB]).catch(() => {});
+    if (bobHadPre === false) await tx([BOB], [{ ExerciseCommand: { templateId: T.PRE, contractId: c.contractId, choice: "YapTransferPreapproval_Cancel", choiceArgument: {} } }], [], [BOB]).catch(() => {});
   // consolidate whatever is left with the contract's own Merge (dust-cleanup.mjs; more reliable than the SDK's merge),
   // which also cancels bob's preapproval, so the issuer-side checks work again
   for (const who of ["cusdt-alice", "cusdt-bob"]) {

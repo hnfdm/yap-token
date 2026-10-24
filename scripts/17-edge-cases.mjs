@@ -27,7 +27,7 @@ async function settleAll() {
   const S = await snap();
   await Promise.allSettled([...S.I.map((i) => ti(i.createArgument.transfer.sender, i.contractId, "TransferInstruction_Withdraw")()), ...S.A.map((a) => al([a.createArgument.allocation.transferLeg.sender], a.contractId, "Allocation_Withdraw")())]);
 }
-for (const c of (await acs(token, admin, T.PRE)).filter((c) => c.createArgument.receiver === BOB)) await tpl([BOB], T.PRE, c.contractId, "CusdtTransferPreapproval_Cancel")();
+for (const c of (await acs(token, admin, T.PRE)).filter((c) => c.createArgument.receiver === BOB)) await tpl([BOB], T.PRE, c.contractId, "YapTransferPreapproval_Cancel")();
 await settleAll();
 const S0 = await snap(); expected = supply(S0);
 const v0 = checkInvariants(S0, expected); if (v0.length) { console.log("pre-existing violations: " + v0.join("; ")); process.exit(2); }
@@ -77,9 +77,9 @@ await invariants("allocation edges");
 // ---- what the issuer (admin) can and cannot do ------------------------------------------------
 console.log("-- issuer powers");
 const [adm] = await acs(token, admin, T.ADMIN);
-const mintTiny = async (to) => { await tpl([admin], T.ADMIN, adm.contractId, "CusdtAdmin_Mint", { recipient: to, amount: amt(1) })(); expected += 1; return free(await snap(), to).find((h) => mu(h.createArgument.amount) === 1); };
+const mintTiny = async (to) => { await tpl([admin], T.ADMIN, adm.contractId, "YapAdmin_Mint", { recipient: to, amount: amt(1) })(); expected += 1; return free(await snap(), to).find((h) => mu(h.createArgument.amount) === 1); };
 { const tiny = await mintTiny(ALICE);
-  await mustFail("admin cannot use the custom Burn on alice's holding", tpl([admin], T.HOLDING, tiny.contractId, "CusdtHolding_Burn"));
+  await mustFail("admin cannot use the custom Burn on alice's holding", tpl([admin], T.HOLDING, tiny.contractId, "YapHolding_Burn"));
   let archived = false;
   try { await tpl([admin], T.HOLDING, tiny.contractId, "Archive")(); archived = true; expected -= 1; } catch (e) { console.log("      Archive rejected: " + short(e).slice(-120)); }
   ok("FINDING: admin CAN still destroy alice's holding with Daml's built-in Archive (admin is a signatory)", archived, archived ? "succeeded: the issuer can burn any balance" : "rejected"); }
@@ -105,7 +105,7 @@ console.log("-- redemption path");
   await ti(admin, inst.contractId, "TransferInstruction_Accept")();
   const mine = free(await snap(), admin).find((h) => mu(h.createArgument.amount) === 5);
   ok("admin received 5 micro as a normal holding", !!mine);
-  await tpl([admin], T.HOLDING, mine.contractId, "CusdtHolding_Burn")(); expected -= 5;
+  await tpl([admin], T.HOLDING, mine.contractId, "YapHolding_Burn")(); expected -= 5;
   ok("burning the redeemed holding shrinks supply by exactly 5 micro", supply(await snap()) === before - 5); }
 await invariants("redemption path");
 

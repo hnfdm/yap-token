@@ -19,5 +19,5 @@ command -v dpm >/dev/null || curl -fsSL https://get.digitalasset.com/install/ins
 echo "== SDK @@SDK@@ =="
 (cd / && dpm install @@SDK@@)
 
-mkdir -p "$HOME/cusdt-token/daml/cusdt-token"
+mkdir -p "$HOME/yap-token/daml/yap-token"
 echo "ready. Now run update-on-vps.sh"

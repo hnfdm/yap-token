@@ -1,12 +1,12 @@
--- Unit tests for the cUSDT contracts (Daml Script, run with `dpm test`). No network, no traffic.
+-- Unit tests for the YAP contracts (Daml Script, run with `dpm test`). No network, no traffic.
 -- They cover what is awkward on a live testnet: time (expiry), exact authorisation, lock rules, delegation.
-module CusdtTokenTest where
+module YapTokenTest where
 
 import Daml.Script
 import DA.Time
 import DA.Date
 import DA.TextMap qualified as TextMap
-import CusdtToken
+import YapToken
 import Splice.Api.Token.AllocationInstructionV1 qualified as AI
 import Splice.Api.Token.AllocationV1 qualified as A
 import Splice.Api.Token.BurnMintV1 qualified as BM
@@ -24,8 +24,8 @@ data World = World with
   alice : Party
   bob   : Party
   carol : Party
-  tf    : ContractId CusdtTransferFactory
-  af    : ContractId CusdtAllocationFactory
+  tf    : ContractId YapTransferFactory
+  af    : ContractId YapAllocationFactory
   tfD   : Disclosure
   afD   : Disclosure
 
@@ -41,25 +41,25 @@ setup = do
   bob <- allocateParty "bob"
   carol <- allocateParty "carol"
   setTime (time (date 2026 Oct 12) 9 0 0)
-  tf <- submit admin do createCmd CusdtTransferFactory with admin
-  af <- submit admin do createCmd CusdtAllocationFactory with admin
+  tf <- submit admin do createCmd YapTransferFactory with admin
+  af <- submit admin do createCmd YapAllocationFactory with admin
   Some tfD <- queryDisclosure admin tf
   Some afD <- queryDisclosure admin af
   pure World with ..
 
-mint : World -> Party -> Decimal -> Script (ContractId CusdtHolding)
+mint : World -> Party -> Decimal -> Script (ContractId YapHolding)
 mint w owner amount = submit w.admin do
-  createCmd CusdtHolding with admin = w.admin, owner, amount, lock = None
+  createCmd YapHolding with admin = w.admin, owner, amount, lock = None
 
 -- (cid, contract) of the UNLOCKED holdings of a party / of everything (the admin is signatory of all)
-freeOf : World -> Party -> Script [(ContractId CusdtHolding, CusdtHolding)]
+freeOf : World -> Party -> Script [(ContractId YapHolding, YapHolding)]
 freeOf w p = do
-  hs <- query @CusdtHolding w.admin
+  hs <- query @YapHolding w.admin
   pure [ (c, h) | (c, h) <- hs, h.owner == p, h.lock == None ]
 
-lockedOf : World -> Party -> Script [(ContractId CusdtHolding, CusdtHolding)]
+lockedOf : World -> Party -> Script [(ContractId YapHolding, YapHolding)]
 lockedOf w p = do
-  hs <- query @CusdtHolding w.admin
+  hs <- query @YapHolding w.admin
   pure [ (c, h) | (c, h) <- hs, h.owner == p, h.lock /= None ]
 
 balance : World -> Party -> Script Decimal
@@ -69,8 +69,8 @@ balance w p = do
 
 supplyAll : World -> Script Decimal
 supplyAll w = do
-  hs <- query @CusdtHolding w.admin
-  is <- query @CusdtTransferInstruction w.admin
+  hs <- query @YapHolding w.admin
+  is <- query @YapTransferInstruction w.admin
   pure (sum [ h.amount | (_, h) <- hs ] + sum [ i.transfer.amount | (_, i) <- is ])
 
 -- assert that a Script Decimal equals an expected value
@@ -80,7 +80,7 @@ expectBalance s expected msg = do
   assertMsg (msg <> " (expected " <> show expected <> ", got " <> show v <> ")") (v == expected)
 
 -- the fully parameterised form is used by the "must fail" tests that vary exactly one field
-transferCmdFull : World -> Time -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Party -> Party -> RelTime -> RelTime -> M.ExtraArgs -> Commands TI.TransferInstructionResult
+transferCmdFull : World -> Time -> Party -> Party -> Decimal -> [ContractId YapHolding] -> Party -> Party -> RelTime -> RelTime -> M.ExtraArgs -> Commands TI.TransferInstructionResult
 transferCmdFull w now s r a ins expAdmin instAdmin reqOff execOff extra =
   exerciseCmd (toInterfaceContractId @TI.TransferFactory w.tf) TI.TransferFactory_Transfer with
     expectedAdmin = expAdmin
@@ -88,35 +88,35 @@ transferCmdFull w now s r a ins expAdmin instAdmin reqOff execOff extra =
       sender = s
       receiver = r
       amount = a
-      instrumentId = cusdtInstrumentId instAdmin
+      instrumentId = yapInstrumentId instAdmin
       requestedAt = addRelTime now reqOff
       executeBefore = addRelTime now execOff
       inputHoldingCids = map toInterfaceContractId ins
       meta = M.emptyMetadata
     extraArgs = extra
 
-transferCmd : World -> Time -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Commands TI.TransferInstructionResult
+transferCmd : World -> Time -> Party -> Party -> Decimal -> [ContractId YapHolding] -> Commands TI.TransferInstructionResult
 transferCmd w now s r a ins = transferCmdFull w now s r a ins w.admin w.admin (seconds (-30)) (hours 1) noExtra
 
-sendOffer : World -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Script ()
+sendOffer : World -> Party -> Party -> Decimal -> [ContractId YapHolding] -> Script ()
 sendOffer w s r a ins = do
   now <- getTime
   _ <- submit (actAs s <> disclose w.tfD) (transferCmd w now s r a ins)
   pure ()
 
-pendingOffers : World -> Script [(ContractId CusdtTransferInstruction, CusdtTransferInstruction)]
-pendingOffers w = query @CusdtTransferInstruction w.admin
+pendingOffers : World -> Script [(ContractId YapTransferInstruction, YapTransferInstruction)]
+pendingOffers w = query @YapTransferInstruction w.admin
 
-acceptOffer : ContractId CusdtTransferInstruction -> Commands TI.TransferInstructionResult
+acceptOffer : ContractId YapTransferInstruction -> Commands TI.TransferInstructionResult
 acceptOffer c = exerciseCmd (toInterfaceContractId @TI.TransferInstruction c) TI.TransferInstruction_Accept with extraArgs = noExtra
 
-withdrawOffer : ContractId CusdtTransferInstruction -> Commands TI.TransferInstructionResult
+withdrawOffer : ContractId YapTransferInstruction -> Commands TI.TransferInstructionResult
 withdrawOffer c = exerciseCmd (toInterfaceContractId @TI.TransferInstruction c) TI.TransferInstruction_Withdraw with extraArgs = noExtra
 
-rejectOffer : ContractId CusdtTransferInstruction -> Commands TI.TransferInstructionResult
+rejectOffer : ContractId YapTransferInstruction -> Commands TI.TransferInstructionResult
 rejectOffer c = exerciseCmd (toInterfaceContractId @TI.TransferInstruction c) TI.TransferInstruction_Reject with extraArgs = noExtra
 
-allocateCmdFull : World -> Time -> Party -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Party -> Party -> RelTime -> RelTime -> RelTime -> Commands AI.AllocationInstructionResult
+allocateCmdFull : World -> Time -> Party -> Party -> Party -> Text -> Decimal -> [ContractId YapHolding] -> Party -> Party -> RelTime -> RelTime -> RelTime -> Commands AI.AllocationInstructionResult
 allocateCmdFull w now s r executor ref a ins expAdmin instAdmin reqOff allocOff settleOff =
   exerciseCmd (toInterfaceContractId @AI.AllocationFactory w.af) AI.AllocationFactory_Allocate with
     expectedAdmin = expAdmin
@@ -133,21 +133,21 @@ allocateCmdFull w now s r executor ref a ins expAdmin instAdmin reqOff allocOff 
         sender = s
         receiver = r
         amount = a
-        instrumentId = cusdtInstrumentId instAdmin
+        instrumentId = yapInstrumentId instAdmin
         meta = M.emptyMetadata
     requestedAt = addRelTime now reqOff
     inputHoldingCids = map toInterfaceContractId ins
     extraArgs = noExtra
 
-allocateCmd : World -> Time -> Party -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Commands AI.AllocationInstructionResult
+allocateCmd : World -> Time -> Party -> Party -> Party -> Text -> Decimal -> [ContractId YapHolding] -> Commands AI.AllocationInstructionResult
 allocateCmd w now s r executor ref a ins = allocateCmdFull w now s r executor ref a ins w.admin w.admin (seconds (-30)) (hours 1) (hours 2)
 
 -- creates an allocation and returns the one matching executor / sender / receiver / reference
-doAllocateFull : World -> Party -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Script (ContractId CusdtAllocation)
+doAllocateFull : World -> Party -> Party -> Party -> Text -> Decimal -> [ContractId YapHolding] -> Script (ContractId YapAllocation)
 doAllocateFull w s r executor ref a ins = do
   now <- getTime
   _ <- submit (actAs s <> disclose w.afD) (allocateCmd w now s r executor ref a ins)
-  allocs <- query @CusdtAllocation w.admin
+  allocs <- query @YapAllocation w.admin
   case [ c | (c, x) <- allocs
            , x.allocation.settlement.settlementRef.id == ref
            , x.allocation.settlement.executor == executor
@@ -156,22 +156,22 @@ doAllocateFull w s r executor ref a ins = do
     (c :: _) -> pure c
     [] -> abort ("allocation not found for " <> ref)
 
-doAllocate : World -> Party -> Party -> Text -> Decimal -> [ContractId CusdtHolding] -> Script (ContractId CusdtAllocation)
+doAllocate : World -> Party -> Party -> Text -> Decimal -> [ContractId YapHolding] -> Script (ContractId YapAllocation)
 doAllocate w s r ref a ins = doAllocateFull w s r w.admin ref a ins
 
-executeAlloc : ContractId CusdtAllocation -> Commands A.Allocation_ExecuteTransferResult
+executeAlloc : ContractId YapAllocation -> Commands A.Allocation_ExecuteTransferResult
 executeAlloc c = exerciseCmd (toInterfaceContractId @A.Allocation c) A.Allocation_ExecuteTransfer with extraArgs = noExtra
 
-withdrawAlloc : ContractId CusdtAllocation -> Commands A.Allocation_WithdrawResult
+withdrawAlloc : ContractId YapAllocation -> Commands A.Allocation_WithdrawResult
 withdrawAlloc c = exerciseCmd (toInterfaceContractId @A.Allocation c) A.Allocation_Withdraw with extraArgs = noExtra
 
-execViaAuthority : ContractId CusdtSettlementAuthority -> ContractId CusdtAllocation -> Commands A.Allocation_ExecuteTransferResult
-execViaAuthority auth alloc = exerciseCmd auth CusdtSettlement_Execute with
+execViaAuthority : ContractId YapSettlementAuthority -> ContractId YapAllocation -> Commands A.Allocation_ExecuteTransferResult
+execViaAuthority auth alloc = exerciseCmd auth YapSettlement_Execute with
   allocationCid = toInterfaceContractId @A.Allocation alloc
   extraArgs = noExtra
 
-cancelViaAuthority : ContractId CusdtSettlementAuthority -> ContractId CusdtAllocation -> Commands A.Allocation_CancelResult
-cancelViaAuthority auth alloc = exerciseCmd auth CusdtSettlement_Cancel with
+cancelViaAuthority : ContractId YapSettlementAuthority -> ContractId YapAllocation -> Commands A.Allocation_CancelResult
+cancelViaAuthority auth alloc = exerciseCmd auth YapSettlement_Cancel with
   allocationCid = toInterfaceContractId @A.Allocation alloc
   extraArgs = noExtra
 
@@ -254,7 +254,7 @@ testStaleDatesAndWrongAdminFail = do
           sender = w.alice
           receiver = w.bob
           amount = 1.0
-          instrumentId = cusdtInstrumentId w.admin
+          instrumentId = yapInstrumentId w.admin
           requestedAt = addRelTime now (seconds (-30))
           executeBefore = exp
           inputHoldingCids = [toInterfaceContractId h]
@@ -278,8 +278,8 @@ testDirectTransferWithPreapproval = do
   w <- setup
   h <- mint w w.alice 10.0
   h2 <- mint w w.alice 1.0
-  adm <- submit w.admin do createCmd CusdtAdmin with admin = w.admin
-  pre <- submit w.admin do exerciseCmd adm CusdtAdmin_CreatePreapproval with receiver = w.bob
+  adm <- submit w.admin do createCmd YapAdmin with admin = w.admin
+  pre <- submit w.admin do exerciseCmd adm YapAdmin_CreatePreapproval with receiver = w.bob
   Some preD <- queryDisclosure w.admin pre
   now <- getTime
   let ctx = M.ExtraArgs with
@@ -291,7 +291,7 @@ testDirectTransferWithPreapproval = do
           sender = w.alice
           receiver = r
           amount = a
-          instrumentId = cusdtInstrumentId w.admin
+          instrumentId = yapInstrumentId w.admin
           requestedAt = addRelTime now (seconds (-30))
           executeBefore = addRelTime now (hours 1)
           inputHoldingCids = [toInterfaceContractId h]
@@ -311,18 +311,18 @@ testSplitMergeBurn : Script ()
 testSplitMergeBurn = do
   w <- setup
   h <- mint w w.alice 10.0
-  (a, b) <- submit w.alice do exerciseCmd h CusdtHolding_Split with splitAmount = 3.0
+  (a, b) <- submit w.alice do exerciseCmd h YapHolding_Split with splitAmount = 3.0
   expectBalance (balance w w.alice) 10.0 "split keeps the total"
-  m <- submit w.alice do exerciseCmd a CusdtHolding_Merge with otherCids = [b]
+  m <- submit w.alice do exerciseCmd a YapHolding_Merge with otherCids = [b]
   hs <- freeOf w w.alice
   assertMsg "merge leaves one holding" (length hs == 1)
   expectBalance (balance w w.alice) 10.0 "merge keeps the total"
-  submitMustFail w.alice do exerciseCmd m CusdtHolding_Split with splitAmount = 10.0          -- not strictly less
-  submitMustFail w.alice do exerciseCmd m CusdtHolding_Split with splitAmount = 0.0
-  submitMustFail w.alice do exerciseCmd m CusdtHolding_Split with splitAmount = 0.0000001     -- 7 decimals
-  submitMustFail w.bob do exerciseCmd m CusdtHolding_Split with splitAmount = 1.0             -- not the owner
-  submitMustFail w.admin do exerciseCmd m CusdtHolding_Burn                                    -- admin cannot use the custom Burn
-  _ <- submit w.alice do exerciseCmd m CusdtHolding_Burn
+  submitMustFail w.alice do exerciseCmd m YapHolding_Split with splitAmount = 10.0          -- not strictly less
+  submitMustFail w.alice do exerciseCmd m YapHolding_Split with splitAmount = 0.0
+  submitMustFail w.alice do exerciseCmd m YapHolding_Split with splitAmount = 0.0000001     -- 7 decimals
+  submitMustFail w.bob do exerciseCmd m YapHolding_Split with splitAmount = 1.0             -- not the owner
+  submitMustFail w.admin do exerciseCmd m YapHolding_Burn                                    -- admin cannot use the custom Burn
+  _ <- submit w.alice do exerciseCmd m YapHolding_Burn
   expectBalance (supplyAll w) 0.0 "owner burn removes the amount"
 
 testMergeGuards : Script ()
@@ -331,9 +331,9 @@ testMergeGuards = do
   a <- mint w w.alice 5.0
   b <- mint w w.alice 2.0
   c <- mint w w.bob 7.0
-  submitMustFail w.alice do exerciseCmd a CusdtHolding_Merge with otherCids = [b, b]   -- the same holding twice
-  submitMustFail w.alice do exerciseCmd a CusdtHolding_Merge with otherCids = [a]      -- with itself
-  submitMustFail w.alice do exerciseCmd a CusdtHolding_Merge with otherCids = [c]      -- somebody else's
+  submitMustFail w.alice do exerciseCmd a YapHolding_Merge with otherCids = [b, b]   -- the same holding twice
+  submitMustFail w.alice do exerciseCmd a YapHolding_Merge with otherCids = [a]      -- with itself
+  submitMustFail w.alice do exerciseCmd a YapHolding_Merge with otherCids = [c]      -- somebody else's
   expectBalance (supplyAll w) 14.0 "nothing moved"
 
 -- ---------------------------------------------------------------------------------------------------------
@@ -364,10 +364,10 @@ testLockedHoldingCannotBeTouched = do
   _ <- doAllocate w w.alice w.bob "ref-2" 4.0 [h]
   other <- mint w w.alice 1.0
   [(l, _)] <- lockedOf w w.alice
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_Burn
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_Merge with otherCids = [other]
-  submitMustFail w.alice do exerciseCmd other CusdtHolding_Merge with otherCids = [l]
+  submitMustFail w.alice do exerciseCmd l YapHolding_Burn
+  submitMustFail w.alice do exerciseCmd l YapHolding_Split with splitAmount = 1.0
+  submitMustFail w.alice do exerciseCmd l YapHolding_Merge with otherCids = [other]
+  submitMustFail w.alice do exerciseCmd other YapHolding_Merge with otherCids = [l]
   now <- getTime
   submitMustFail (actAs w.alice <> disclose w.tfD) (transferCmd w now w.alice w.bob 1.0 [l])
   submitMustFail (actAs w.alice <> disclose w.afD) (allocateCmd w now w.alice w.bob w.admin "ref-3" 1.0 [l])
@@ -410,11 +410,11 @@ testIssuerPowers : Script ()
 testIssuerPowers = do
   w <- setup
   h <- mint w w.alice 10.0
-  adm <- submit w.admin do createCmd CusdtAdmin with admin = w.admin
+  adm <- submit w.admin do createCmd YapAdmin with admin = w.admin
   -- mint only by the admin, precision enforced
-  submitMustFail w.alice do exerciseCmd adm CusdtAdmin_Mint with recipient = w.alice, amount = 1.0
-  submitMustFail w.admin do exerciseCmd adm CusdtAdmin_Mint with recipient = w.alice, amount = 0.0000001
-  submitMustFail w.admin do exerciseCmd adm CusdtAdmin_Mint with recipient = w.alice, amount = 0.0
+  submitMustFail w.alice do exerciseCmd adm YapAdmin_Mint with recipient = w.alice, amount = 1.0
+  submitMustFail w.admin do exerciseCmd adm YapAdmin_Mint with recipient = w.alice, amount = 0.0000001
+  submitMustFail w.admin do exerciseCmd adm YapAdmin_Mint with recipient = w.alice, amount = 0.0
   -- FINDING: the admin is the sole signatory of every holding, so the built-in Archive lets it destroy any balance
   submit w.admin do archiveCmd h
   expectBalance (supplyAll w) 0.0 "admin could destroy alice's holding"
@@ -433,16 +433,16 @@ testAdminAloneCannotArchiveInstructionOrAllocation = do
 -- ---------------------------------------------------------------------------------------------------------
 -- delegated settlement
 
-delegate : World -> Text -> Time -> Script (ContractId CusdtSettlementAuthority)
+delegate : World -> Text -> Time -> Script (ContractId YapSettlementAuthority)
 delegate w ref expires = do
   p <- submit w.alice do
-    createCmd CusdtSettlementProposal with
+    createCmd YapSettlementProposal with
       executor = w.admin
       sender = w.alice
       receiver = w.bob
       settlementRefId = ref
       expiresAt = expires
-  submit w.bob do exerciseCmd p CusdtSettlementProposal_Accept
+  submit w.bob do exerciseCmd p YapSettlementProposal_Accept
 
 testDelegatedSettlement : Script ()
 testDelegatedSettlement = do
@@ -476,12 +476,12 @@ testDelegationRevocationAndExpiry = do
   h2 <- mint w w.alice 10.0
   auth <- delegate w "ref-11" (addRelTime now (hours 5))
   alloc <- doAllocate w w.alice w.bob "ref-11" 4.0 [h]
-  submitMustFail w.admin do exerciseCmd auth CusdtSettlement_RevokeBySender              -- the executor cannot revoke
-  submitMustFail w.bob do exerciseCmd auth CusdtSettlement_RevokeBySender                -- wrong role
-  submit w.bob do exerciseCmd auth CusdtSettlement_RevokeByReceiver                      -- the receiver alone can
+  submitMustFail w.admin do exerciseCmd auth YapSettlement_RevokeBySender              -- the executor cannot revoke
+  submitMustFail w.bob do exerciseCmd auth YapSettlement_RevokeBySender                -- wrong role
+  submit w.bob do exerciseCmd auth YapSettlement_RevokeByReceiver                      -- the receiver alone can
   submitMustFail w.admin (execViaAuthority auth alloc)
   auth2 <- delegate w "ref-11" (addRelTime now (hours 5))
-  submit w.alice do exerciseCmd auth2 CusdtSettlement_RevokeBySender                     -- so can the sender alone
+  submit w.alice do exerciseCmd auth2 YapSettlement_RevokeBySender                     -- so can the sender alone
   -- an authority past its expiry cannot be used
   auth3 <- delegate w "ref-11" (addRelTime now (hours 1))
   passTime (hours 2)
@@ -507,7 +507,7 @@ testProposalRules = do
   w <- setup
   now <- getTime
   submitMustFail w.alice do
-    createCmd CusdtSettlementProposal with
+    createCmd YapSettlementProposal with
       executor = w.admin
       sender = w.alice
       receiver = w.alice
@@ -515,14 +515,14 @@ testProposalRules = do
       expiresAt = addRelTime now (hours 1)
   -- an expired proposal cannot be accepted
   p <- submit w.alice do
-    createCmd CusdtSettlementProposal with
+    createCmd YapSettlementProposal with
       executor = w.admin
       sender = w.alice
       receiver = w.bob
       settlementRefId = "y"
       expiresAt = addRelTime now (hours 1)
   passTime (hours 2)
-  submitMustFail w.bob do exerciseCmd p CusdtSettlementProposal_Accept
+  submitMustFail w.bob do exerciseCmd p YapSettlementProposal_Accept
 
 -- ---------------------------------------------------------------------------------------------------------
 -- added after the first mutation run: rules that no test protected on their own
@@ -538,11 +538,11 @@ testForeignAndMixedHoldings = do
   now <- getTime
   submitMustFail (actAs w.alice <> disclose w.tfD <> disclose hbD) (transferCmd w now w.alice w.bob 1.0 [hb])
   submitMustFail (actAs w.alice <> disclose w.afD <> disclose hbD) (allocateCmd w now w.alice w.bob w.admin "f" 1.0 [hb])
-  submitMustFail (actAs w.alice <> disclose hbD) do exerciseCmd ha CusdtHolding_Merge with otherCids = [hb]
+  submitMustFail (actAs w.alice <> disclose hbD) do exerciseCmd ha YapHolding_Merge with otherCids = [hb]
   -- a holding of ANOTHER issuer with the same owner must not be mixed in
-  h2 <- submit admin2 do createCmd CusdtHolding with admin = admin2, owner = w.alice, amount = 3.0, lock = None
+  h2 <- submit admin2 do createCmd YapHolding with admin = admin2, owner = w.alice, amount = 3.0, lock = None
   Some h2D <- queryDisclosure admin2 h2
-  submitMustFail (actAs w.alice <> disclose h2D) do exerciseCmd ha CusdtHolding_Merge with otherCids = [h2]
+  submitMustFail (actAs w.alice <> disclose h2D) do exerciseCmd ha YapHolding_Merge with otherCids = [h2]
   submitMustFail (actAs w.alice <> disclose w.tfD <> disclose h2D) (transferCmd w now w.alice w.bob 1.0 [h2])
   expectBalance (balance w w.bob) 7.0 "bob untouched"
 
@@ -551,8 +551,8 @@ testPreapprovalOfAnotherIssuerIsRejected = do
   w <- setup
   admin2 <- allocateParty "admin2"
   h <- mint w w.alice 10.0
-  adm2 <- submit admin2 do createCmd CusdtAdmin with admin = admin2
-  pre2 <- submit admin2 do exerciseCmd adm2 CusdtAdmin_CreatePreapproval with receiver = w.bob
+  adm2 <- submit admin2 do createCmd YapAdmin with admin = admin2
+  pre2 <- submit admin2 do exerciseCmd adm2 YapAdmin_CreatePreapproval with receiver = w.bob
   Some pre2D <- queryDisclosure admin2 pre2
   now <- getTime
   let ctx = M.ExtraArgs with
@@ -618,11 +618,11 @@ testDelegationExpiresOnItsOwn = do
 -- ---------------------------------------------------------------------------------------------------------
 -- burn / mint (Splice.Api.Token.BurnMintV1)
 
-burnMintCmd : World -> ContractId CusdtBurnMintFactory -> Party -> InstrumentIdArg -> [ContractId CusdtHolding] -> [(Party, Decimal)] -> [Party] -> Commands BM.BurnMintFactory_BurnMintResult
+burnMintCmd : World -> ContractId YapBurnMintFactory -> Party -> InstrumentIdArg -> [ContractId YapHolding] -> [(Party, Decimal)] -> [Party] -> Commands BM.BurnMintFactory_BurnMintResult
 burnMintCmd w bf expAdmin inst ins outs actors =
   exerciseCmd (toInterfaceContractId @BM.BurnMintFactory bf) BM.BurnMintFactory_BurnMint with
     expectedAdmin = expAdmin
-    instrumentId = cusdtInstrumentId inst
+    instrumentId = yapInstrumentId inst
     inputHoldingCids = map toInterfaceContractId ins
     outputs = [ BM.BurnMintOutput with owner = o, amount = a, context = M.ChoiceContext with values = TextMap.empty | (o, a) <- outs ]
     extraActors = actors
@@ -630,10 +630,10 @@ burnMintCmd w bf expAdmin inst ins outs actors =
 
 type InstrumentIdArg = Party
 
-bmSetup : Script (World, ContractId CusdtBurnMintFactory)
+bmSetup : Script (World, ContractId YapBurnMintFactory)
 bmSetup = do
   w <- setup
-  bf <- submit w.admin do createCmd CusdtBurnMintFactory with admin = w.admin
+  bf <- submit w.admin do createCmd YapBurnMintFactory with admin = w.admin
   pure (w, bf)
 
 testBurnMintReshapeKeepsSupply : Script ()
@@ -696,7 +696,7 @@ testBurnMintRefusesOutputContext = do
   submitMustFail (actAs [w.admin, w.alice]) do
     exerciseCmd (toInterfaceContractId @BM.BurnMintFactory bf) BM.BurnMintFactory_BurnMint with
       expectedAdmin = w.admin
-      instrumentId = cusdtInstrumentId w.admin
+      instrumentId = yapInstrumentId w.admin
       inputHoldingCids = [toInterfaceContractId h]
       outputs = [BM.BurnMintOutput with owner = w.alice, amount = 10.0, context = ctx]
       extraActors = [w.alice]
@@ -709,10 +709,10 @@ testBurnMintRefusesOutputContext = do
 v2Acct : Party -> H2.Account
 v2Acct p = H2.Account with owner = Some p, provider = None, id = ""
 
-transferV2Cmd : World -> Time -> [Party] -> H2.Account -> H2.Account -> Decimal -> H2.InstrumentId -> [ContractId CusdtHolding] -> M.ExtraArgs -> Commands TI2.TransferInstructionResult
+transferV2Cmd : World -> Time -> [Party] -> H2.Account -> H2.Account -> Decimal -> H2.InstrumentId -> [ContractId YapHolding] -> M.ExtraArgs -> Commands TI2.TransferInstructionResult
 transferV2Cmd w now acts s r a inst ins ex = transferV2CmdT w now (seconds (-30)) (hours 1) acts s r a inst ins ex
 
-transferV2CmdT : World -> Time -> RelTime -> RelTime -> [Party] -> H2.Account -> H2.Account -> Decimal -> H2.InstrumentId -> [ContractId CusdtHolding] -> M.ExtraArgs -> Commands TI2.TransferInstructionResult
+transferV2CmdT : World -> Time -> RelTime -> RelTime -> [Party] -> H2.Account -> H2.Account -> Decimal -> H2.InstrumentId -> [ContractId YapHolding] -> M.ExtraArgs -> Commands TI2.TransferInstructionResult
 transferV2CmdT w now reqOff execOff acts s r a inst ins ex =
   exerciseCmd (toInterfaceContractId @TI2.TransferFactory w.tf) TI2.TransferFactory_Transfer with
     transfer = TI2.Transfer with
@@ -727,19 +727,19 @@ transferV2CmdT w now reqOff execOff acts s r a inst ins ex =
     actors = acts
     extraArgs = ex
 
-offerV2 : World -> Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Script ()
+offerV2 : World -> Party -> Party -> Decimal -> [ContractId YapHolding] -> Script ()
 offerV2 w s r a ins = do
   now <- getTime
-  _ <- submit (actAs s <> disclose w.tfD) (transferV2Cmd w now [s] (v2Acct s) (v2Acct r) a (cusdtInstrumentIdV2 w.admin) ins noExtra)
+  _ <- submit (actAs s <> disclose w.tfD) (transferV2Cmd w now [s] (v2Acct s) (v2Acct r) a (yapInstrumentIdV2 w.admin) ins noExtra)
   pure ()
 
-acceptV2 : [Party] -> ContractId CusdtTransferInstruction -> Commands TI2.TransferInstructionResult
+acceptV2 : [Party] -> ContractId YapTransferInstruction -> Commands TI2.TransferInstructionResult
 acceptV2 acts c = exerciseCmd (toInterfaceContractId @TI2.TransferInstruction c) TI2.TransferInstruction_Accept with actors = acts, extraArgs = noExtra
 
-rejectV2 : [Party] -> ContractId CusdtTransferInstruction -> Commands TI2.TransferInstructionResult
+rejectV2 : [Party] -> ContractId YapTransferInstruction -> Commands TI2.TransferInstructionResult
 rejectV2 acts c = exerciseCmd (toInterfaceContractId @TI2.TransferInstruction c) TI2.TransferInstruction_Reject with actors = acts, extraArgs = noExtra
 
-withdrawV2 : [Party] -> ContractId CusdtTransferInstruction -> Commands TI2.TransferInstructionResult
+withdrawV2 : [Party] -> ContractId YapTransferInstruction -> Commands TI2.TransferInstructionResult
 withdrawV2 acts c = exerciseCmd (toInterfaceContractId @TI2.TransferInstruction c) TI2.TransferInstruction_Withdraw with actors = acts, extraArgs = noExtra
 
 testV2HoldingViewAndV1Coexist : Script ()
@@ -792,9 +792,9 @@ testV2WrongActorsAreRefused = do
   Some hD <- queryDisclosure w.admin h
   now <- getTime
   -- bob tries to spend ALICE's holding (it is disclosed to him): the sender is not among the actors
-  submitMustFail (actAs w.bob <> disclose w.tfD <> disclose hD) (transferV2Cmd w now [w.bob] (v2Acct w.alice) (v2Acct w.bob) 5.0 (cusdtInstrumentIdV2 w.admin) [h] noExtra)
+  submitMustFail (actAs w.bob <> disclose w.tfD <> disclose hD) (transferV2Cmd w now [w.bob] (v2Acct w.alice) (v2Acct w.bob) 5.0 (yapInstrumentIdV2 w.admin) [h] noExtra)
   -- the same with the receiver pretending to be the sender's account owner
-  submitMustFail (actAs w.bob <> disclose w.tfD <> disclose hD) (transferV2Cmd w now [w.bob] (v2Acct w.bob) (v2Acct w.bob) 5.0 (cusdtInstrumentIdV2 w.admin) [h] noExtra)
+  submitMustFail (actAs w.bob <> disclose w.tfD <> disclose hD) (transferV2Cmd w now [w.bob] (v2Acct w.bob) (v2Acct w.bob) 5.0 (yapInstrumentIdV2 w.admin) [h] noExtra)
   expectBalance (supplyAll w) 10.0 "nothing moved"
   offerV2 w w.alice w.bob 4.0 [h]
   [(i, _)] <- pendingOffers w
@@ -812,12 +812,12 @@ testV2AccountAndInstrumentRules = do
   h <- mint w w.alice 10.0
   now <- getTime
   let go s r inst a = submitMustFail (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] s r a inst [h] noExtra)
-  let good = cusdtInstrumentIdV2 w.admin
+  let good = yapInstrumentIdV2 w.admin
   go (v2Acct w.alice) (H2.Account with owner = Some w.bob, provider = Some w.admin, id = "") good 1.0   -- an account with a provider
   go (v2Acct w.alice) (H2.Account with owner = Some w.bob, provider = None, id = "savings") good 1.0    -- a non-default account id
   go (v2Acct w.alice) (H2.Account with owner = None, provider = None, id = "") good 1.0                 -- an admin-managed account
   go (H2.Account with owner = None, provider = None, id = "") (v2Acct w.bob) good 1.0
-  go (v2Acct w.alice) (v2Acct w.bob) (cusdtInstrumentIdV2 admin2) 1.0                                  -- another admin's instrument
+  go (v2Acct w.alice) (v2Acct w.bob) (yapInstrumentIdV2 admin2) 1.0                                  -- another admin's instrument
   go (v2Acct w.alice) (v2Acct w.bob) good 0.0
   go (v2Acct w.alice) (v2Acct w.bob) good (-1.0)
   go (v2Acct w.alice) (v2Acct w.bob) good 0.0000001                                                   -- 7 decimals
@@ -847,22 +847,22 @@ testV2SelfAndDirectTransfer = do
   h <- mint w w.alice 10.0
   h2 <- mint w w.alice 1.0
   now <- getTime
-  _ <- submit (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.alice) 4.0 (cusdtInstrumentIdV2 w.admin) [h] noExtra)
+  _ <- submit (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.alice) 4.0 (yapInstrumentIdV2 w.admin) [h] noExtra)
   ps <- pendingOffers w
   assertMsg "a V2 self transfer completes at once" (null ps)
   expectBalance (balance w w.alice) 11.0 "balance unchanged"
-  adm <- submit w.admin do createCmd CusdtAdmin with admin = w.admin
-  pre <- submit w.admin do exerciseCmd adm CusdtAdmin_CreatePreapproval with receiver = w.bob
+  adm <- submit w.admin do createCmd YapAdmin with admin = w.admin
+  pre <- submit w.admin do exerciseCmd adm YapAdmin_CreatePreapproval with receiver = w.bob
   Some preD <- queryDisclosure w.admin pre
   let ctx = M.ExtraArgs with
         context = M.ChoiceContext with values = TextMap.fromList [(preapprovalKey, M.AV_ContractId (coerceContractId pre))]
         meta = M.emptyMetadata
   hs <- freeOf w w.alice
-  _ <- submit (actAs w.alice <> disclose w.tfD <> disclose preD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 6.0 (cusdtInstrumentIdV2 w.admin) (map fst hs) ctx)
+  _ <- submit (actAs w.alice <> disclose w.tfD <> disclose preD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 6.0 (yapInstrumentIdV2 w.admin) (map fst hs) ctx)
   expectBalance (balance w w.bob) 6.0 "direct V2 transfer credited at once"
   -- a preapproval for bob cannot pay somebody else
   hs2 <- freeOf w w.alice
-  submitMustFail (actAs w.alice <> disclose w.tfD <> disclose preD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.admin) 1.0 (cusdtInstrumentIdV2 w.admin) (map fst hs2) ctx)
+  submitMustFail (actAs w.alice <> disclose w.tfD <> disclose preD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.admin) 1.0 (yapInstrumentIdV2 w.admin) (map fst hs2) ctx)
   _ <- pure h2
   pure ()
 
@@ -873,8 +873,8 @@ testV2ExpiryAndInputs = do
   hb <- mint w w.bob 5.0
   now <- getTime
   -- somebody else's holding, and no inputs at all
-  submitMustFail (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 1.0 (cusdtInstrumentIdV2 w.admin) [hb] noExtra)
-  submitMustFail (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 1.0 (cusdtInstrumentIdV2 w.admin) [] noExtra)
+  submitMustFail (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 1.0 (yapInstrumentIdV2 w.admin) [hb] noExtra)
+  submitMustFail (actAs w.alice <> disclose w.tfD) (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 1.0 (yapInstrumentIdV2 w.admin) [] noExtra)
   offerV2 w w.alice w.bob 4.0 [h]
   [(i, _)] <- pendingOffers w
   passTime (hours 2)
@@ -889,20 +889,20 @@ testV2DirectPathCannotSpendSomeoneElsesHolding = do
   w <- setup
   h <- mint w w.alice 10.0
   Some hD <- queryDisclosure w.admin h
-  adm <- submit w.admin do createCmd CusdtAdmin with admin = w.admin
-  pre <- submit w.admin do exerciseCmd adm CusdtAdmin_CreatePreapproval with receiver = w.bob
+  adm <- submit w.admin do createCmd YapAdmin with admin = w.admin
+  pre <- submit w.admin do exerciseCmd adm YapAdmin_CreatePreapproval with receiver = w.bob
   Some preD <- queryDisclosure w.admin pre
   now <- getTime
   let ctx = M.ExtraArgs with
         context = M.ChoiceContext with values = TextMap.fromList [(preapprovalKey, M.AV_ContractId (coerceContractId pre))]
         meta = M.emptyMetadata
   submitMustFail (actAs w.bob <> disclose w.tfD <> disclose hD <> disclose preD)
-    (transferV2Cmd w now [w.bob] (v2Acct w.alice) (v2Acct w.bob) 10.0 (cusdtInstrumentIdV2 w.admin) [h] ctx)
+    (transferV2Cmd w now [w.bob] (v2Acct w.alice) (v2Acct w.bob) 10.0 (yapInstrumentIdV2 w.admin) [h] ctx)
   expectBalance (balance w w.alice) 10.0 "alice keeps her money"
   expectBalance (balance w w.bob) 0.0 "bob got nothing"
   -- the owner can of course pay bob that way
   _ <- submit (actAs w.alice <> disclose w.tfD <> disclose preD)
-    (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 10.0 (cusdtInstrumentIdV2 w.admin) [h] ctx)
+    (transferV2Cmd w now [w.alice] (v2Acct w.alice) (v2Acct w.bob) 10.0 (yapInstrumentIdV2 w.admin) [h] ctx)
   expectBalance (balance w w.bob) 10.0 "the owner's own direct transfer works"
 
 testV2DatesAreChecked : Script ()
@@ -911,7 +911,7 @@ testV2DatesAreChecked = do
   h <- mint w w.alice 10.0
   now <- getTime
   let go reqOff execOff = submitMustFail (actAs w.alice <> disclose w.tfD)
-        (transferV2CmdT w now reqOff execOff [w.alice] (v2Acct w.alice) (v2Acct w.bob) 1.0 (cusdtInstrumentIdV2 w.admin) [h] noExtra)
+        (transferV2CmdT w now reqOff execOff [w.alice] (v2Acct w.alice) (v2Acct w.bob) 1.0 (yapInstrumentIdV2 w.admin) [h] noExtra)
   go (seconds 60) (hours 1)          -- requestedAt in the future
   go (seconds (-30)) (seconds (-1))  -- executeBefore already passed
   expectBalance (supplyAll w) 10.0 "nothing moved"
@@ -934,15 +934,15 @@ testExpiredAllocationLockNoLongerBlocksTheOwner = do
   h <- mint w w.alice 10.0
   alloc <- doAllocate w w.alice w.bob "exp-1" 4.0 [h]
   [(l, _)] <- lockedOf w w.alice
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0     -- still locked inside the window
+  submitMustFail w.alice do exerciseCmd l YapHolding_Split with splitAmount = 1.0     -- still locked inside the window
   passTime (hours 3)
   submitMustFail (actAs [w.admin, w.alice, w.bob]) (executeAlloc alloc)                  -- but it can no longer be settled
-  _ <- submit w.alice do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0         -- expired: the owner can use it
+  _ <- submit w.alice do exerciseCmd l YapHolding_Split with splitAmount = 1.0         -- expired: the owner can use it
   expectBalance (balance w w.alice) 10.0 "both split parts are plain holdings again"
   submitMustFail w.alice (withdrawAlloc alloc)                                           -- the locked holding is gone
-  submitMustFail w.bob do exerciseCmd alloc CusdtAllocation_DiscardExpired               -- only the sender may discard
-  _ <- submit w.alice do exerciseCmd alloc CusdtAllocation_DiscardExpired
-  allocs <- query @CusdtAllocation w.admin
+  submitMustFail w.bob do exerciseCmd alloc YapAllocation_DiscardExpired               -- only the sender may discard
+  _ <- submit w.alice do exerciseCmd alloc YapAllocation_DiscardExpired
+  allocs <- query @YapAllocation w.admin
   assertMsg "no allocation left" (null allocs)
   expectBalance (supplyAll w) 10.0 "supply unchanged"
 
@@ -951,7 +951,7 @@ testDiscardNeedsExpiry = do
   w <- setup
   h <- mint w w.alice 10.0
   alloc <- doAllocate w w.alice w.bob "exp-2" 4.0 [h]
-  submitMustFail w.alice do exerciseCmd alloc CusdtAllocation_DiscardExpired
+  submitMustFail w.alice do exerciseCmd alloc YapAllocation_DiscardExpired
   _ <- submit w.alice (withdrawAlloc alloc)
   expectBalance (balance w w.alice) 10.0 "withdraw inside the window still works"
 
@@ -968,7 +968,7 @@ testExpiredLockedHoldingIsUsableEverywhere = do
   -- ... as a merge partner and for burning
   h2 <- mint w w.alice 2.0
   h3 <- mint w w.alice 3.0
-  _ <- submit w.alice do exerciseCmd h2 CusdtHolding_Merge with otherCids = [h3]
+  _ <- submit w.alice do exerciseCmd h2 YapHolding_Merge with otherCids = [h3]
   expectBalance (balance w w.alice) 14.0 "merged"
 
 testVoluntaryLock : Script ()
@@ -976,25 +976,25 @@ testVoluntaryLock = do
   w <- setup
   h <- mint w w.alice 10.0
   now <- getTime
-  submitMustFail w.bob do exerciseCmd h CusdtHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 2), context = "x"   -- not the owner
-  submitMustFail w.alice do exerciseCmd h CusdtHolding_Lock with holders = [w.alice], expiresAt = addRelTime now (hours 2), context = "x" -- owner as holder
-  submitMustFail w.alice do exerciseCmd h CusdtHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (seconds (-1)), context = "x" -- already past
-  l <- submit w.alice do exerciseCmd h CusdtHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 2), context = "escrow"
+  submitMustFail w.bob do exerciseCmd h YapHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 2), context = "x"   -- not the owner
+  submitMustFail w.alice do exerciseCmd h YapHolding_Lock with holders = [w.alice], expiresAt = addRelTime now (hours 2), context = "x" -- owner as holder
+  submitMustFail w.alice do exerciseCmd h YapHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (seconds (-1)), context = "x" -- already past
+  l <- submit w.alice do exerciseCmd h YapHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 2), context = "escrow"
   expectBalance (balance w w.alice) 0.0 "a locked holding is not free"
   -- nothing can move it
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_Burn
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 3), context = "again"
+  submitMustFail w.alice do exerciseCmd l YapHolding_Split with splitAmount = 1.0
+  submitMustFail w.alice do exerciseCmd l YapHolding_Burn
+  submitMustFail w.alice do exerciseCmd l YapHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 3), context = "again"
   submitMustFail (actAs w.alice <> disclose w.tfD) (transferCmd w now w.alice w.bob 1.0 [l])
   submitMustFail (actAs w.alice <> disclose w.afD) (allocateCmd w now w.alice w.bob w.admin "vl" 1.0 [l])
   -- the V2 view shows the lock and who holds it
   vs <- queryInterface @H2.Holding w.alice
   assertMsg "the V2 view reports the lock holders" (not (null [ () | (_, Some v) <- vs, Some lk <- [v.lock], lk.holders == [w.bob] ]))
   -- early release: only the holder, and not the owner or the issuer
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_UnlockEarly
-  submitMustFail w.admin do exerciseCmd l CusdtHolding_UnlockEarly
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_UnlockExpired                       -- not expired yet
-  _ <- submit w.bob do exerciseCmd l CusdtHolding_UnlockEarly
+  submitMustFail w.alice do exerciseCmd l YapHolding_UnlockEarly
+  submitMustFail w.admin do exerciseCmd l YapHolding_UnlockEarly
+  submitMustFail w.alice do exerciseCmd l YapHolding_UnlockExpired                       -- not expired yet
+  _ <- submit w.bob do exerciseCmd l YapHolding_UnlockEarly
   expectBalance (balance w w.alice) 10.0 "released by the holder"
   expectBalance (supplyAll w) 10.0 "supply unchanged"
 
@@ -1003,10 +1003,10 @@ testPureTimeLockNobodyCanShorten = do
   w <- setup
   h <- mint w w.alice 10.0
   now <- getTime
-  l <- submit w.alice do exerciseCmd h CusdtHolding_Lock with holders = [], expiresAt = addRelTime now (hours 1), context = "time lock"
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_UnlockEarly
-  submitMustFail w.bob do exerciseCmd l CusdtHolding_UnlockEarly
-  submitMustFail w.admin do exerciseCmd l CusdtHolding_UnlockEarly
+  l <- submit w.alice do exerciseCmd h YapHolding_Lock with holders = [], expiresAt = addRelTime now (hours 1), context = "time lock"
+  submitMustFail w.alice do exerciseCmd l YapHolding_UnlockEarly
+  submitMustFail w.bob do exerciseCmd l YapHolding_UnlockEarly
+  submitMustFail w.admin do exerciseCmd l YapHolding_UnlockEarly
   passTime (hours 2)
   now2 <- getTime
   sendOffer w w.alice w.bob 4.0 [l]                                                         -- after expiry it is spendable without any unlock step
@@ -1019,12 +1019,12 @@ testUnlockExpiredTidyUp = do
   w <- setup
   h <- mint w w.alice 10.0
   now <- getTime
-  l <- submit w.alice do exerciseCmd h CusdtHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 1), context = "tidy"
+  l <- submit w.alice do exerciseCmd h YapHolding_Lock with holders = [w.bob], expiresAt = addRelTime now (hours 1), context = "tidy"
   passTime (hours 2)
-  _ <- submit w.alice do exerciseCmd l CusdtHolding_UnlockExpired
+  _ <- submit w.alice do exerciseCmd l YapHolding_UnlockExpired
   expectBalance (balance w w.alice) 10.0 "stale lock record dropped"
   [(u, _)] <- freeOf w w.alice
-  submitMustFail w.alice do exerciseCmd u CusdtHolding_UnlockExpired                       -- nothing to drop
+  submitMustFail w.alice do exerciseCmd u YapHolding_UnlockExpired                       -- nothing to drop
 
 testAllocationLockCannotBeReleasedEarly : Script ()
 testAllocationLockCannotBeReleasedEarly = do
@@ -1032,20 +1032,20 @@ testAllocationLockCannotBeReleasedEarly = do
   h <- mint w w.alice 10.0
   _ <- doAllocate w w.alice w.bob "no-early" 4.0 [h]
   [(l, _)] <- lockedOf w w.alice
-  submitMustFail w.admin do exerciseCmd l CusdtHolding_UnlockEarly                          -- the executor holds the lock, but it is not voluntary
-  submitMustFail w.alice do exerciseCmd l CusdtHolding_UnlockEarly
+  submitMustFail w.admin do exerciseCmd l YapHolding_UnlockEarly                          -- the executor holds the lock, but it is not voluntary
+  submitMustFail w.alice do exerciseCmd l YapHolding_UnlockEarly
   expectBalance (supplyAll w) 10.0 "nothing moved"
 
 -- ---------------------------------------------------------------------------------------------------------
 -- linear vesting
 
-vestAdmin : World -> Script (ContractId CusdtAdmin)
-vestAdmin w = submit w.admin do createCmd CusdtAdmin with admin = w.admin
+vestAdmin : World -> Script (ContractId YapAdmin)
+vestAdmin w = submit w.admin do createCmd YapAdmin with admin = w.admin
 
--- 100 cUSDT for bob, linear over 10 days from now, cliff = start unless given
-grantVest : World -> ContractId CusdtAdmin -> Party -> Time -> RelTime -> RelTime -> Bool -> Script (ContractId CusdtVesting)
+-- 100 YAP for bob, linear over 10 days from now, cliff = start unless given
+grantVest : World -> ContractId YapAdmin -> Party -> Time -> RelTime -> RelTime -> Bool -> Script (ContractId YapVesting)
 grantVest w adm who now cliffAfter finishAfter rev = submit w.admin do
-  exerciseCmd adm CusdtAdmin_GrantVesting with
+  exerciseCmd adm YapAdmin_GrantVesting with
     beneficiary = who
     amount = 100.0
     start = now
@@ -1064,10 +1064,10 @@ testVestingGrantLocksTheTokens = do
   assertMsg "the whole grant sits in one locked holding" (h.amount == 100.0 && h.owner == w.bob)
   expectBalance (supplyAll w) 100.0 "the grant is new supply"
   -- the locked remainder cannot be touched by anybody
-  submitMustFail w.bob do exerciseCmd l CusdtHolding_Split with splitAmount = 1.0
-  submitMustFail w.bob do exerciseCmd l CusdtHolding_Burn
-  submitMustFail w.bob do exerciseCmd l CusdtHolding_UnlockEarly
-  submitMustFail w.admin do exerciseCmd l CusdtHolding_UnlockEarly            -- the admin holds the lock but it is not a voluntary one
+  submitMustFail w.bob do exerciseCmd l YapHolding_Split with splitAmount = 1.0
+  submitMustFail w.bob do exerciseCmd l YapHolding_Burn
+  submitMustFail w.bob do exerciseCmd l YapHolding_UnlockEarly
+  submitMustFail w.admin do exerciseCmd l YapHolding_UnlockEarly            -- the admin holds the lock but it is not a voluntary one
   submitMustFail (actAs w.bob <> disclose w.tfD) (transferCmd w now w.bob w.alice 1.0 [l])
   -- the V2 view shows it as locked, with the admin as lock holder
   vs <- queryInterface @H2.Holding w.bob
@@ -1081,11 +1081,11 @@ testVestingNothingBeforeTheCliff = do
   adm <- vestAdmin w
   now <- getTime
   v <- grantVest w adm w.bob now (days 5) (days 10) True
-  submitMustFail w.bob do exerciseCmd v CusdtVesting_Claim
+  submitMustFail w.bob do exerciseCmd v YapVesting_Claim
   passTime (days 4)
-  submitMustFail w.bob do exerciseCmd v CusdtVesting_Claim
+  submitMustFail w.bob do exerciseCmd v YapVesting_Claim
   passTime (days 1)                                                             -- the cliff: the share elapsed since the start (5 of 10 days) is released
-  (rel, _) <- submit w.bob do exerciseCmd v CusdtVesting_Claim
+  (rel, _) <- submit w.bob do exerciseCmd v YapVesting_Claim
   expectBalance (balance w w.bob) 50.0 "half is released at the cliff"
   _ <- pure rel
   pure ()
@@ -1096,19 +1096,19 @@ testVestingIsLinear = do
   adm <- vestAdmin w
   now <- getTime
   v0 <- grantVest w adm w.bob now (seconds 0) (days 10) True
-  submitMustFail w.alice do exerciseCmd v0 CusdtVesting_Claim                    -- only the beneficiary
-  submitMustFail w.admin do exerciseCmd v0 CusdtVesting_Claim
+  submitMustFail w.alice do exerciseCmd v0 YapVesting_Claim                    -- only the beneficiary
+  submitMustFail w.admin do exerciseCmd v0 YapVesting_Claim
   passTime (days 1)
-  (_, Some v1) <- submit w.bob do exerciseCmd v0 CusdtVesting_Claim
+  (_, Some v1) <- submit w.bob do exerciseCmd v0 YapVesting_Claim
   expectBalance (balance w w.bob) 10.0 "1 day of 10 -> 10"
-  submitMustFail w.bob do exerciseCmd v1 CusdtVesting_Claim                      -- nothing new has vested
+  submitMustFail w.bob do exerciseCmd v1 YapVesting_Claim                      -- nothing new has vested
   locked1 <- lockedOf w w.bob
   assertMsg "the remainder is one locked holding of 90" ([ h.amount | (_, h) <- locked1 ] == [90.0])
   passTime (days 4)
-  (_, Some v2) <- submit w.bob do exerciseCmd v1 CusdtVesting_Claim
+  (_, Some v2) <- submit w.bob do exerciseCmd v1 YapVesting_Claim
   expectBalance (balance w w.bob) 50.0 "5 days of 10 -> 50 in total"
   passTime (days 6)                                                               -- past the end
-  (_, rest) <- submit w.bob do exerciseCmd v2 CusdtVesting_Claim
+  (_, rest) <- submit w.bob do exerciseCmd v2 YapVesting_Claim
   assertMsg "the schedule is finished" (rest == None)
   expectBalance (balance w w.bob) 100.0 "everything released"
   locked2 <- lockedOf w w.bob
@@ -1122,18 +1122,18 @@ testVestingRevoke = do
   now <- getTime
   v <- grantVest w adm w.bob now (seconds 0) (days 10) True
   passTime (days 4)
-  submitMustFail w.bob do exerciseCmd v CusdtVesting_Revoke                      -- only the admin
-  _ <- submit w.admin do exerciseCmd v CusdtVesting_Revoke
+  submitMustFail w.bob do exerciseCmd v YapVesting_Revoke                      -- only the admin
+  _ <- submit w.admin do exerciseCmd v YapVesting_Revoke
   expectBalance (balance w w.bob) 40.0 "the vested part stays with the beneficiary"
   expectBalance (balance w w.admin) 60.0 "the unvested part returns to the admin"
-  vs <- query @CusdtVesting w.admin
+  vs <- query @YapVesting w.admin
   assertMsg "the schedule is gone" (null vs)
   locked <- lockedOf w w.bob
   assertMsg "nothing stays locked" (null locked)
   expectBalance (supplyAll w) 100.0 "supply unchanged"
   -- a grant that is not revocable cannot be revoked
   v2 <- grantVest w adm w.alice now (seconds 0) (days 10) False
-  submitMustFail w.admin do exerciseCmd v2 CusdtVesting_Revoke
+  submitMustFail w.admin do exerciseCmd v2 YapVesting_Revoke
 
 testVestingClosedAfterTheEnd : Script ()
 testVestingClosedAfterTheEnd = do
@@ -1141,14 +1141,14 @@ testVestingClosedAfterTheEnd = do
   adm <- vestAdmin w
   now <- getTime
   v <- grantVest w adm w.bob now (seconds 0) (days 10) True
-  submitMustFail w.bob do exerciseCmd v CusdtVesting_Close                        -- not finished
+  submitMustFail w.bob do exerciseCmd v YapVesting_Close                        -- not finished
   passTime (days 11)
   [(l, _)] <- lockedOf w w.bob
   sendOffer w w.bob w.alice 1.0 [l]                                               -- after the end the lock has expired: the holding is spendable
-  submitMustFail w.bob do exerciseCmd v CusdtVesting_Claim                        -- ... so the schedule can no longer pay out
-  submitMustFail w.alice do exerciseCmd v CusdtVesting_Close                      -- only the beneficiary
-  _ <- submit w.bob do exerciseCmd v CusdtVesting_Close
-  vs <- query @CusdtVesting w.admin
+  submitMustFail w.bob do exerciseCmd v YapVesting_Claim                        -- ... so the schedule can no longer pay out
+  submitMustFail w.alice do exerciseCmd v YapVesting_Close                      -- only the beneficiary
+  _ <- submit w.bob do exerciseCmd v YapVesting_Close
+  vs <- query @YapVesting w.admin
   assertMsg "the schedule is gone" (null vs)
   expectBalance (supplyAll w) 100.0 "supply unchanged"
 
@@ -1158,7 +1158,7 @@ testVestingGrantGuards = do
   adm <- vestAdmin w
   now <- getTime
   let go amt st cl fin = submitMustFail w.admin do
-        exerciseCmd adm CusdtAdmin_GrantVesting with
+        exerciseCmd adm YapAdmin_GrantVesting with
           beneficiary = w.bob
           amount = amt
           start = addRelTime now st
@@ -1173,7 +1173,7 @@ testVestingGrantGuards = do
   go 10.0 (seconds 0) (days 2) (days 1)                  -- cliff after the end
   go 10.0 (days (-3)) (days (-3)) (days (-1))            -- already over
   submitMustFail w.bob do                                  -- only the admin issues
-    exerciseCmd adm CusdtAdmin_GrantVesting with
+    exerciseCmd adm YapAdmin_GrantVesting with
       beneficiary = w.bob
       amount = 10.0
       start = now
@@ -1186,21 +1186,21 @@ testVestingGrantGuards = do
 -- operator / governor split (0.7.0)
 
 -- carol is the operator in these tests; the admin plays the governor
-appoint : World -> Decimal -> RelTime -> Script (ContractId CusdtOperatorAuthority)
+appoint : World -> Decimal -> RelTime -> Script (ContractId YapOperatorAuthority)
 appoint w allowance validFor = do
   adm <- vestAdmin w
   now <- getTime
   submit w.admin do
-    exerciseCmd adm CusdtAdmin_AppointOperator with operator = w.carol, allowance, validUntil = addRelTime now validFor
+    exerciseCmd adm YapAdmin_AppointOperator with operator = w.carol, allowance, validUntil = addRelTime now validFor
 
 -- the (single) live authority and its allowance
-opState : World -> Script (ContractId CusdtOperatorAuthority, Decimal)
+opState : World -> Script (ContractId YapOperatorAuthority, Decimal)
 opState w = do
-  [(c, a)] <- query @CusdtOperatorAuthority w.admin
+  [(c, a)] <- query @YapOperatorAuthority w.admin
   pure (c, a.allowance)
 
-opMint : World -> ContractId CusdtOperatorAuthority -> Party -> Decimal -> Commands (ContractId CusdtHolding, ContractId CusdtOperatorAuthority)
-opMint w auth to amt = exerciseCmd auth CusdtOperator_Mint with recipient = to, amount = amt
+opMint : World -> ContractId YapOperatorAuthority -> Party -> Decimal -> Commands (ContractId YapHolding, ContractId YapOperatorAuthority)
+opMint w auth to amt = exerciseCmd auth YapOperator_Mint with recipient = to, amount = amt
 
 testOperatorMintShrinksAllowance : Script ()
 testOperatorMintShrinksAllowance = do
@@ -1229,9 +1229,9 @@ testOperatorExpires = do
   passTime (days 2)
   submitMustFail w.carol do opMint w auth w.alice 1.0
   submitMustFail w.carol do
-    exerciseCmd auth CusdtOperator_GrantVesting with
+    exerciseCmd auth YapOperator_GrantVesting with
       beneficiary = w.bob, amount = 1.0, start = now, cliff = now, finish = addRelTime now (days 5), revocable = True
-  submitMustFail w.carol do exerciseCmd auth CusdtOperator_CreatePreapproval with receiver = w.bob
+  submitMustFail w.carol do exerciseCmd auth YapOperator_CreatePreapproval with receiver = w.bob
   expectBalance (supplyAll w) 0.0 "nothing was issued"
 
 testOperatorGrantVestingUsesAllowance : Script ()
@@ -1239,7 +1239,7 @@ testOperatorGrantVestingUsesAllowance = do
   w <- setup
   auth <- appoint w 100.0 (days 30)
   now <- getTime
-  let grant a amt fin = exerciseCmd a CusdtOperator_GrantVesting with
+  let grant a amt fin = exerciseCmd a YapOperator_GrantVesting with
         beneficiary = w.bob, amount = amt, start = now, cliff = now, finish = addRelTime now fin, revocable = True
   submitMustFail w.carol do grant auth 100.01 (days 5)
   submitMustFail w.carol do grant auth 0.0 (days 5)
@@ -1256,11 +1256,11 @@ testOperatorPreapproval : Script ()
 testOperatorPreapproval = do
   w <- setup
   auth <- appoint w 0.0 (days 30)
-  _ <- submit w.carol do exerciseCmd auth CusdtOperator_CreatePreapproval with receiver = w.bob
-  ps <- query @CusdtTransferPreapproval w.admin
+  _ <- submit w.carol do exerciseCmd auth YapOperator_CreatePreapproval with receiver = w.bob
+  ps <- query @YapTransferPreapproval w.admin
   assertMsg "one preapproval for bob" (length [ () | (_, p) <- ps, p.receiver == w.bob, p.admin == w.admin ] == 1)
   -- the same authority still works after a non-consuming use
-  _ <- submit w.carol do exerciseCmd auth CusdtOperator_CreatePreapproval with receiver = w.alice
+  _ <- submit w.carol do exerciseCmd auth YapOperator_CreatePreapproval with receiver = w.alice
   pure ()
 
 testOperatorHasNoOtherPower : Script ()
@@ -1271,17 +1271,17 @@ testOperatorHasNoOtherPower = do
   now <- getTime
   h <- mint w w.alice 10.0
   v <- submit w.admin do
-    exerciseCmd adm CusdtAdmin_GrantVesting with
+    exerciseCmd adm YapAdmin_GrantVesting with
       beneficiary = w.bob, amount = 5.0, start = now, cliff = now, finish = addRelTime now (days 5), revocable = True
   submitMustFail w.carol do archiveCmd auth                              -- cannot remove its own limits
-  submitMustFail w.carol do exerciseCmd auth CusdtOperatorAuthority_SetAllowance with newAllowance = 1000000.0, newValidUntil = addRelTime now (days 999)
-  submitMustFail w.carol do exerciseCmd adm CusdtAdmin_Mint with recipient = w.carol, amount = 1.0
-  submitMustFail w.carol do exerciseCmd adm CusdtAdmin_CreatePreapproval with receiver = w.carol
-  submitMustFail w.carol do exerciseCmd adm CusdtAdmin_AppointOperator with operator = w.carol, allowance = 1000000.0, validUntil = addRelTime now (days 999)
+  submitMustFail w.carol do exerciseCmd auth YapOperatorAuthority_SetAllowance with newAllowance = 1000000.0, newValidUntil = addRelTime now (days 999)
+  submitMustFail w.carol do exerciseCmd adm YapAdmin_Mint with recipient = w.carol, amount = 1.0
+  submitMustFail w.carol do exerciseCmd adm YapAdmin_CreatePreapproval with receiver = w.carol
+  submitMustFail w.carol do exerciseCmd adm YapAdmin_AppointOperator with operator = w.carol, allowance = 1000000.0, validUntil = addRelTime now (days 999)
   submitMustFail w.carol do archiveCmd h                                 -- holdings are the governor's
-  submitMustFail w.carol do exerciseCmd v CusdtVesting_Revoke
+  submitMustFail w.carol do exerciseCmd v YapVesting_Revoke
   submitMustFail w.alice do opMint w auth w.alice 1.0                    -- only the named operator
-  submitMustFail w.bob do exerciseCmd auth CusdtOperator_CreatePreapproval with receiver = w.bob
+  submitMustFail w.bob do exerciseCmd auth YapOperator_CreatePreapproval with receiver = w.bob
   submitMustFail w.admin do opMint w auth w.alice 1.0                    -- not even the governor through the operator door
   expectBalance (balance w w.alice) 10.0 "alice unchanged"
 
@@ -1291,16 +1291,16 @@ testGovernorControlsTheOperator = do
   auth <- appoint w 10.0 (days 1)
   now <- getTime
   auth2 <- submit w.admin do
-    exerciseCmd auth CusdtOperatorAuthority_SetAllowance with newAllowance = 25.0, newValidUntil = addRelTime now (days 10)
+    exerciseCmd auth YapOperatorAuthority_SetAllowance with newAllowance = 25.0, newValidUntil = addRelTime now (days 10)
   (_, a) <- opState w
   assertMsg "topped up to 25" (a == 25.0)
-  submitMustFail w.admin do exerciseCmd auth2 CusdtOperatorAuthority_SetAllowance with newAllowance = -1.0, newValidUntil = now
-  submitMustFail w.admin do exerciseCmd auth2 CusdtOperatorAuthority_SetAllowance with newAllowance = 1.0000001, newValidUntil = now
+  submitMustFail w.admin do exerciseCmd auth2 YapOperatorAuthority_SetAllowance with newAllowance = -1.0, newValidUntil = now
+  submitMustFail w.admin do exerciseCmd auth2 YapOperatorAuthority_SetAllowance with newAllowance = 1.0000001, newValidUntil = now
   passTime (days 5)                                                      -- old expiry passed, new one not
   (_, auth3) <- submit w.carol do opMint w auth2 w.alice 5.0
   -- lowering takes effect at once
   auth4 <- submit w.admin do
-    exerciseCmd auth3 CusdtOperatorAuthority_SetAllowance with newAllowance = 1.0, newValidUntil = addRelTime now (days 10)
+    exerciseCmd auth3 YapOperatorAuthority_SetAllowance with newAllowance = 1.0, newValidUntil = addRelTime now (days 10)
   submitMustFail w.carol do opMint w auth4 w.alice 2.0
   -- revoking: the governor archives the delegation
   submit w.admin do archiveCmd auth4
@@ -1313,13 +1313,13 @@ testAppointOperatorGuards = do
   adm <- vestAdmin w
   now <- getTime
   let go op al = submitMustFail w.admin do
-        exerciseCmd adm CusdtAdmin_AppointOperator with operator = op, allowance = al, validUntil = addRelTime now (days 1)
+        exerciseCmd adm YapAdmin_AppointOperator with operator = op, allowance = al, validUntil = addRelTime now (days 1)
   go w.admin 10.0                      -- operator = governor
   go w.carol (-1.0)
   go w.carol 0.0000001
   submitMustFail w.carol do            -- only the governor appoints
-    exerciseCmd adm CusdtAdmin_AppointOperator with operator = w.carol, allowance = 1.0, validUntil = addRelTime now (days 1)
-  os <- query @CusdtOperatorAuthority w.admin
+    exerciseCmd adm YapAdmin_AppointOperator with operator = w.carol, allowance = 1.0, validUntil = addRelTime now (days 1)
+  os <- query @YapOperatorAuthority w.admin
   assertMsg "no authority was created" (null os)
 
 -- fixed-supply vesting: funded from the admin's own holdings, nothing is minted
@@ -1331,20 +1331,20 @@ testVestingFromTreasury = do
   t <- mint w w.admin 500.0
   other <- mint w w.alice 50.0
   let grant who cids amt = submitMustFail who do
-        exerciseCmd adm CusdtAdmin_GrantVestingFromTreasury with beneficiary = w.bob, amount = amt, start = now, cliff = now, finish = addRelTime now (days 10), revocable = True, treasuryCids = cids
+        exerciseCmd adm YapAdmin_GrantVestingFromTreasury with beneficiary = w.bob, amount = amt, start = now, cliff = now, finish = addRelTime now (days 10), revocable = True, treasuryCids = cids
   grant w.bob [t] 10.0                 -- only the admin
   grant w.admin [other] 10.0           -- an input that is not the admin's own
   grant w.admin [t] 500.01             -- more than the inputs hold
   grant w.admin [t] 0.0                -- zero
   grant w.admin [] 10.0                -- no inputs
   v <- submit w.admin do
-    exerciseCmd adm CusdtAdmin_GrantVestingFromTreasury with beneficiary = w.bob, amount = 200.0, start = now, cliff = now, finish = addRelTime now (days 10), revocable = True, treasuryCids = [t]
+    exerciseCmd adm YapAdmin_GrantVestingFromTreasury with beneficiary = w.bob, amount = 200.0, start = now, cliff = now, finish = addRelTime now (days 10), revocable = True, treasuryCids = [t]
   expectBalance (supplyAll w) 550.0 "supply unchanged: 500 treasury + 50"
   expectBalance (balance w w.admin) 300.0 "the treasury kept the change"
   locked <- lockedOf w w.bob
   assertMsg "bob has 200 locked" (sum [ h.amount | (_, h) <- locked ] == 200.0)
   passTime (days 5)
-  _ <- submit w.admin do exerciseCmd v CusdtVesting_Revoke
+  _ <- submit w.admin do exerciseCmd v YapVesting_Revoke
   expectBalance (balance w w.bob) 100.0 "the vested half stays with bob"
   expectBalance (balance w w.admin) 400.0 "the unvested half returns to the treasury"
   expectBalance (supplyAll w) 550.0 "supply unchanged after the revoke"

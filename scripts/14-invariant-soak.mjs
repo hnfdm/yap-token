@@ -18,8 +18,8 @@ const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
 const registry = process.env.CUSDT_REGISTRY_URL || "http://localhost:8787";
 const token = await getToken();
 
-const HOLDING = `${PKG}:CusdtToken:CusdtHolding`, INSTR = `${PKG}:CusdtToken:CusdtTransferInstruction`;
-const ALLOC = `${PKG}:CusdtToken:CusdtAllocation`, ADMINT = `${PKG}:CusdtToken:CusdtAdmin`, PRE = `${PKG}:CusdtToken:CusdtTransferPreapproval`;
+const HOLDING = `${PKG}:YapToken:YapHolding`, INSTR = `${PKG}:YapToken:YapTransferInstruction`;
+const ALLOC = `${PKG}:YapToken:YapAllocation`, ADMINT = `${PKG}:YapToken:YapAdmin`, PRE = `${PKG}:YapToken:YapTransferPreapproval`;
 const IF_TF = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferFactory";
 const IF_TI = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferInstruction";
 const IF_AF = "#splice-api-token-allocation-instruction-v1:Splice.Api.Token.AllocationInstructionV1:AllocationFactory";
@@ -80,24 +80,24 @@ const OPSET = {
   async withdraw_alloc(S) { const a = pick(S.A.filter((c) => internal(c.createArgument.allocation.transferLeg.sender))); if (!a) return "skip"; await exA([a.createArgument.allocation.transferLeg.sender], a.contractId, "Allocation_Withdraw"); },
   async cancel_alloc(S) { const a = pick(S.A.filter((c) => c.createArgument.allocation.settlement.executor === admin && internal(c.createArgument.allocation.transferLeg.sender, c.createArgument.allocation.transferLeg.receiver))); if (!a) return "skip";
     const l = a.createArgument.allocation.transferLeg; await exA([admin, l.sender, l.receiver], a.contractId, "Allocation_Cancel"); },
-  async merge(S) { const p = pick([ALICE, BOB]); const hs = free(S, p); if (hs.length < 2) return "skip"; await exT([p], HOLDING, hs[0].contractId, "CusdtHolding_Merge", { otherCids: hs.slice(1).map((h) => h.contractId) }); },
+  async merge(S) { const p = pick([ALICE, BOB]); const hs = free(S, p); if (hs.length < 2) return "skip"; await exT([p], HOLDING, hs[0].contractId, "YapHolding_Merge", { otherCids: hs.slice(1).map((h) => h.contractId) }); },
   async split(S) { const p = pick([ALICE, BOB]); const h = pick(free(S, p).filter((x) => mu(x.createArgument.amount) >= 2)); if (!h) return "skip";
-    await exT([p], HOLDING, h.contractId, "CusdtHolding_Split", { splitAmount: amt(ri(1, mu(h.createArgument.amount) - 1)) }); },
+    await exT([p], HOLDING, h.contractId, "YapHolding_Split", { splitAmount: amt(ri(1, mu(h.createArgument.amount) - 1)) }); },
   async mint_burn(S) { const p = pick([ALICE, BOB]); const [adm] = (await (async () => { const r = await ledger(token, "/v2/state/active-contracts", { method: "POST", json: { activeAtOffset: await ledgerEnd(token),
       eventFormat: { filtersByParty: { [admin]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId: ADMINT, includeCreatedEventBlob: false } } } }] } }, verbose: true } } });
       return (Array.isArray(r) ? r : (r.activeContracts ?? [])).map((it) => it.contractEntry?.JsActiveContract?.createdEvent).filter(Boolean); })());
-    await exT([admin], ADMINT, adm.contractId, "CusdtAdmin_Mint", { recipient: p, amount: amt(1) }); expected += 1;
+    await exT([admin], ADMINT, adm.contractId, "YapAdmin_Mint", { recipient: p, amount: amt(1) }); expected += 1;
     const S2 = await snap(); const tiny = free(S2, p).find((h) => mu(h.createArgument.amount) === 1);
-    if (tiny) { await exT([p], HOLDING, tiny.contractId, "CusdtHolding_Burn", {}); expected -= 1; } },
+    if (tiny) { await exT([p], HOLDING, tiny.contractId, "YapHolding_Burn", {}); expected -= 1; } },
   // bob opts in/out of direct transfers: while he has a preapproval the registry answers "direct"
   async toggle_pre(S) {
     const q = async (tpl) => { const r = await ledger(token, "/v2/state/active-contracts", { method: "POST", json: { activeAtOffset: await ledgerEnd(token),
       eventFormat: { filtersByParty: { [admin]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId: tpl, includeCreatedEventBlob: false } } } }] } }, verbose: true } } });
       return (Array.isArray(r) ? r : (r.activeContracts ?? [])).map((it) => it.contractEntry?.JsActiveContract?.createdEvent).filter(Boolean); };
     const pre = (await retry(() => q(PRE))).filter((c) => c.createArgument.receiver === BOB);
-    if (pre.length) { for (const c of pre) await exT([BOB], PRE, c.contractId, "CusdtTransferPreapproval_Cancel", {}); return; }
+    if (pre.length) { for (const c of pre) await exT([BOB], PRE, c.contractId, "YapTransferPreapproval_Cancel", {}); return; }
     const [adm] = await retry(() => q(ADMINT));
-    await exT([admin], ADMINT, adm.contractId, "CusdtAdmin_CreatePreapproval", { receiver: BOB });
+    await exT([admin], ADMINT, adm.contractId, "YapAdmin_CreatePreapproval", { receiver: BOB });
   },
   // ---- must-fail operations ----
   async bad_overspend(S) { const p = pick([ALICE, BOB]); const bal = sumMu(free(S, p)); const ins = inputsFor(S, p, bal); if (!ins) return "skip"; return { mustFail: () => transfer(p, p === ALICE ? BOB : ALICE, amt(bal + 1), ins) }; },

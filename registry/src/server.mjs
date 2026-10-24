@@ -1,4 +1,4 @@
-// Off-ledger registry API for cUSDT (Canton Token Standard / CIP-56).
+// Off-ledger registry API for YAP (Canton Token Standard / CIP-56).
 // Implements the token-metadata-v1 and transfer-instruction-v1 OpenAPI specs from Splice.
 // Plain JS, zero dependencies (Node >= 18): node:http + global fetch.
 import { createServer } from "node:http";
@@ -11,7 +11,7 @@ const KC_CLIENT  = process.env.KC_CLIENT_ID ?? "";
 const KC_SECRET  = process.env.KC_CLIENT_SECRET ?? "";
 const KC_SCOPE   = process.env.KC_SCOPE ?? "daml_ledger_api";
 const ADMIN      = process.env.CUSDT_ADMIN_PARTY ?? "";
-const PKG        = process.env.CUSDT_PACKAGE_NAME ?? "#cusdt-token";
+const PKG        = process.env.CUSDT_PACKAGE_NAME ?? "#yap-token";
 const SYMBOL     = "YAP";
 
 const SUPPORTED_APIS = {
@@ -21,7 +21,7 @@ const SUPPORTED_APIS = {
   "splice-api-token-allocation-v1": 1,
   "splice-api-token-allocation-instruction-v1": 1,
 };
-// Token Standard V2 (CIP-0112) transfers: routes always exist, but they are only advertised once the V2-capable DAR (cusdt-token >= 0.5.0) is live.
+// Token Standard V2 (CIP-0112) transfers: routes always exist, but they are only advertised once the V2-capable DAR (yap-token >= 0.5.0) is live.
 const ENABLE_V2 = process.env.CUSDT_ENABLE_V2 === "1";
 if (ENABLE_V2) {
   SUPPORTED_APIS["splice-api-token-holding-v2"] = 1;
@@ -52,8 +52,8 @@ async function ledgerToken() {
 }
 
 const singletonCache = new Map();
-const findFactory = () => findSingleton("CusdtTransferFactory");
-const findAllocationFactory = () => findSingleton("CusdtAllocationFactory");
+const findFactory = () => findSingleton("YapTransferFactory");
+const findAllocationFactory = () => findSingleton("YapAllocationFactory");
 
 async function findSingleton(tpl) {
   const hit = singletonCache.get(tpl);
@@ -67,7 +67,7 @@ async function findSingleton(tpl) {
       activeAtOffset: end.offset,
       eventFormat: {
         filtersByParty: { [ADMIN]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: {
-          templateId: `${PKG}:CusdtToken:${tpl}`, includeCreatedEventBlob: true } } } }] } },
+          templateId: `${PKG}:YapToken:${tpl}`, includeCreatedEventBlob: true } } } }] } },
         verbose: true,
       },
     }),
@@ -101,7 +101,7 @@ async function findPreapproval(receiver) {
       activeAtOffset: end.offset,
       eventFormat: {
         filtersByParty: { [ADMIN]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: {
-          templateId: `${PKG}:CusdtToken:CusdtTransferPreapproval`, includeCreatedEventBlob: true } } } }] } },
+          templateId: `${PKG}:YapToken:YapTransferPreapproval`, includeCreatedEventBlob: true } } } }] } },
         verbose: true,
       },
     }),
@@ -166,7 +166,7 @@ async function transferFactoryAnswer(sender, receiver) {
     choiceContext: { choiceContextData: { values: {} }, disclosedContracts: [d] } };
 }
 
-// V2 accounts: only plain owner accounts exist for cUSDT (owner set, no provider, default id).
+// V2 accounts: only plain owner accounts exist for YAP (owner set, no provider, default id).
 function plainOwner(acct, what) {
   if (acct === null || typeof acct !== "object" || Array.isArray(acct)) throw new HttpError(400, what + " must be an account object");
   if (typeof acct.owner !== "string" || !acct.owner) throw new HttpError(400, what + ".owner must be a party id string (admin-managed accounts are not supported)");

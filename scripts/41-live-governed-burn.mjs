@@ -1,4 +1,4 @@
-// LIVE test of the governed BurnTreasury (cusdt-governance 0.2.0) on the decentralized-admin instance (admin = cusdt-gov, 2-of-2 over t1 + t2).
+// LIVE test of the governed BurnTreasury (yap-governance 0.2.0) on the decentralized-admin instance (admin = cusdt-gov, 2-of-2 over t1 + t2).
 //   node scripts/41-live-governed-burn.mjs        (.env.testnet = t1; two HUMAN steps: confirm on both nodes + execute on t1, twice)
 // Flow: the operator is appointed (governed), creates a PREAPPROVAL for the governor and mints 4000 micro for alice; alice and bob then send
 // every holding they have to the governor (direct transfers through the registry); finally ONE governed BurnTreasury proposal burns the lot.
@@ -12,8 +12,8 @@ const n = node(E, "t1");
 const GOV = E.CUSDT_GOV_PARTY ?? "cusdt-gov::12205fb8f032bfcfe6ae4ae3a7625629fe9065668ee529e3a785691e1cdce5022c2b";
 const MEMBER = E.CUSDT_GOV_MEMBER ?? "cryptolampung-testnet-1::122013397e0d9bb71891e884ccd6948a93057115a2fd46a5cf2e4db254844bbd0ea1";
 const ALICE = E.CUSDT_ALICE, BOB = E.CUSDT_BOB, OP = E.CUSDT_OPERATOR;
-const P = "#cusdt-token:CusdtToken:", G = "#cusdt-governance:CusdtGovernance:";
-const HOLD = P + "CusdtHolding", ADM = P + "CusdtAdmin", OPA = P + "CusdtOperatorAuthority", PRE = P + "CusdtTransferPreapproval", BMF = P + "CusdtBurnMintFactory";
+const P = "#yap-token:YapToken:", G = "#yap-governance:YapGovernance:";
+const HOLD = P + "YapHolding", ADM = P + "YapAdmin", OPA = P + "YapOperatorAuthority", PRE = P + "YapTransferPreapproval", BMF = P + "YapBurnMintFactory";
 const I_TF2 = "#splice-api-token-transfer-instruction-v2:Splice.Api.Token.TransferInstructionV2:TransferFactory";
 const inst = { admin: GOV, id: "YAP" };
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
@@ -34,7 +34,7 @@ const human = (what, label) => console.log(`\n   >>> HUMAN STEP: ${what}\n      
 async function group(name, fn) { console.log(`-- ${name}`); try { await fn(); } catch (e) { fail++; console.log(`FAIL  ${name} threw: ${short(e).slice(0, 500)}`); } }
 
 const [adm] = await n.acs(GOV, ADM), [bmf] = await n.acs(GOV, BMF);
-if (!adm || !bmf) throw new Error("CusdtAdmin / CusdtBurnMintFactory of cusdt-gov not found (finish the decman-cusdt contracts step first)");
+if (!adm || !bmf) throw new Error("YapAdmin / YapBurnMintFactory of cusdt-gov not found (finish the decman-cusdt contracts step first)");
 const supply0 = await supplyNow();
 console.log(`start: governed supply ${supply0 / 1e6}; alice ${await total(ALICE)} bob ${await total(BOB)} gov ${await total(GOV)} micro`);
 let minted = 0;
@@ -54,7 +54,7 @@ try {
   await group("governed: appoint the operator (30 minutes, 6000 micro)", async () => {
     if ((await auth()).length === 0) {
       await n.tx([MEMBER], [{ CreateCommand: { templateId: G + "AppointOperatorProposal", createArguments: { governanceParty: GOV, proposer: MEMBER, adminCid: adm.contractId, operator: OP, allowance: amt(6000), validUntil: iso(30 * 60_000 + HUMAN) } } }]);
-      human("appoint the operator", "CusdtAppointOperator");
+      human("appoint the operator", "YapAppointOperator");
       const w = await waitFor(async () => (await auth())[0] ?? null, HUMAN);
       ok("the operator authority appeared", !!w.v, `${w.s}s`);
     } else console.log("(an authority already exists, using it)");
@@ -63,11 +63,11 @@ try {
   await group("the operator makes a preapproval for the governor and mints 4000 micro for alice", async () => {
     const [a] = await auth();
     const hasPre = (await n.acs(GOV, PRE)).some((p) => p.createArgument.receiver === GOV);
-    if (!hasPre) await n.tx([OP], [ex(OPA, a.contractId, "CusdtOperator_CreatePreapproval", { receiver: GOV })]);
+    if (!hasPre) await n.tx([OP], [ex(OPA, a.contractId, "YapOperator_CreatePreapproval", { receiver: GOV })]);
     ok("the governor has a transfer preapproval", (await waitFor(async () => ((await n.acs(GOV, PRE)).some((p) => p.createArgument.receiver === GOV) ? true : null))).v === true);
     const [a2] = await auth();
     const before = new Set((await holdings(ALICE)).map((c) => c.contractId));
-    await n.tx([OP], [ex(OPA, a2.contractId, "CusdtOperator_Mint", { recipient: ALICE, amount: amt(4000) })]); minted += 4000;
+    await n.tx([OP], [ex(OPA, a2.contractId, "YapOperator_Mint", { recipient: ALICE, amount: amt(4000) })]); minted += 4000;
     ok("alice got the 4000-micro holding", !!(await waitFor(async () => (await holdings(ALICE)).find((c) => !before.has(c.contractId) && mu(c) === 4000))).v);
   });
 
@@ -83,7 +83,7 @@ try {
     const hs = await holdings(GOV);
     await n.tx([MEMBER], [{ CreateCommand: { templateId: G + "BurnTreasuryProposal", createArguments: { governanceParty: GOV, proposer: MEMBER, factoryCid: bmf.contractId, holdingCids: hs.map((h) => h.contractId) } } }]);
     ok("t1's validator party created the BurnTreasuryProposal", true, `${hs.length} holding(s), ${hs.reduce((s, c) => s + mu(c), 0)} micro`);
-    human("burn the governor's holdings", "CusdtBurnTreasury");
+    human("burn the governor's holdings", "YapBurnTreasury");
     const w = await waitFor(async () => ((await total(GOV)) === 0 ? true : null), HUMAN);
     ok("the governor's holdings are gone after the governed burn", !!w.v, `${w.s}s`);
     ok("governed supply is 0", (await supplyNow()) === 0, `${await supplyNow()} micro`);

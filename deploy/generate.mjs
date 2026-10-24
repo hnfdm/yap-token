@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n"); // LF only: the output runs under bash
 
-const yaml = read("daml/cusdt-token/daml.yaml");
+const yaml = read("daml/yap-token/daml.yaml");
 const version = yaml.match(/^version:\s*(\S+)/m)?.[1];
 const sdk = yaml.match(/^sdk-version:\s*(\S+)/m)?.[1];
 if (!version || !sdk) throw new Error("cannot read version / sdk-version from daml.yaml");

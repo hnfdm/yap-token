@@ -9,7 +9,7 @@ const suffix = admin.split("::")[1];
 const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
 const registry = process.env.CUSDT_REGISTRY_URL || "http://localhost:8787";
 const token = await getToken();
-const HOLDING = `${PKG}:CusdtToken:CusdtHolding`;
+const HOLDING = `${PKG}:YapToken:YapHolding`;
 const IFACE_TF = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferFactory";
 
 const held = async (p) => (await acs(token, p, HOLDING, { blob: true })).filter((c) => c.createArgument.owner === p);
@@ -50,7 +50,7 @@ await mustFail("spend a disclosed holding owned by someone else", "not owned by 
 // 2. alice tries to merge bob's holding into hers (disclosed to her)
 await mustFail("merge a disclosed holding owned by someone else", "owner mismatch", () =>
   submit(token, { actAs: [ALICE], label: "disc-merge", disclosedContracts: b0.map(disclose),
-    commands: [{ ExerciseCommand: { templateId: HOLDING, contractId: a0[0].contractId, choice: "CusdtHolding_Merge",
+    commands: [{ ExerciseCommand: { templateId: HOLDING, contractId: a0[0].contractId, choice: "YapHolding_Merge",
       choiceArgument: { otherCids: b0.map((h) => h.contractId) } } }] }));
 
 const a1 = await held(ALICE), b1 = await held(BOB);

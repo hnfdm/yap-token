@@ -1,13 +1,13 @@
 // Prototype: read active contracts through the WEBSOCKET stream of the JSON Ledger API (no 200-element cap on streams) and compare with the HTTP list.
-//   node scripts/31-ws-active-contracts.mjs [template=CusdtHolding] [party=admin]        needs Node >= 22 (global WebSocket)
+//   node scripts/31-ws-active-contracts.mjs [template=YapHolding] [party=admin]        needs Node >= 22 (global WebSocket)
 // Streaming endpoint: ws(s)://<ledger>/v2/state/active-contracts, subprotocols ["jwt.token.<jwt>", "daml.ws.auth"], first message = the same JSON body as the HTTP POST.
 import { loadEnv } from "./lib.mjs";
 import { node } from "./nodes.mjs";
 
 const E = loadEnv(".env.testnet"); if (E.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const n = node(E, "ours"), admin = E.CUSDT_ADMIN_PARTY;
-const tplName = process.argv[2] ?? "CusdtHolding", party = process.argv[3] ?? admin;
-const templateId = `#cusdt-token:CusdtToken:${tplName}`;
+const tplName = process.argv[2] ?? "YapHolding", party = process.argv[3] ?? admin;
+const templateId = `#yap-token:YapToken:${tplName}`;
 
 export async function wsActiveContracts(nd, cfg, party, templateId, { timeoutMs = 60_000, blob = false } = {}) {
   const off = (await nd.ledger("/v2/state/ledger-end")).offset;

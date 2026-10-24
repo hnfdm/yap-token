@@ -1,4 +1,4 @@
-// Shared helpers for cUSDT testnet scripts. Reads .env.testnet from the repo root.
+// Shared helpers for YAP testnet scripts. Reads .env.testnet from the repo root.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -19,7 +19,7 @@ export function loadEnv(file = ".env.testnet") {
 // CUSDT_ENV_FILE selects another node's settings, e.g. CUSDT_ENV_FILE=.env.mzf (the second testnet validator)
 export const env = loadEnv(process.env.CUSDT_ENV_FILE || ".env.testnet");
 export const need = (k) => { if (!env[k]) throw new Error(`missing env ${k}`); return env[k]; };
-export const PKG = env.CUSDT_PACKAGE_NAME || "#cusdt-token";
+export const PKG = env.CUSDT_PACKAGE_NAME || "#yap-token";
 
 // Self-signed / domain-fronted testnet endpoints: set INSECURE_TLS=1 for local testing only.
 if (env.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";

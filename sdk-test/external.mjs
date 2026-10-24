@@ -49,9 +49,9 @@ console.log(`ext-alice ${A.partyId.slice(0, 32)}...\next-bob   ${B.partyId.slice
 // ---- fund alice (issuer mints; this is the only admin-token step) ---------------------------
 await step("fund", async () => {
   if (total(await holdings(A)) >= 20) return;
-  const [adm] = await acs(token, admin, `${PKG}:CusdtToken:CusdtAdmin`);
-  await rawSubmit(token, { actAs: [admin], label: "ext-mint", commands: [{ ExerciseCommand: { templateId: `${PKG}:CusdtToken:CusdtAdmin`,
-    contractId: adm.contractId, choice: "CusdtAdmin_Mint", choiceArgument: { recipient: A.partyId, amount: "50.0000000000" } } }] });
+  const [adm] = await acs(token, admin, `${PKG}:YapToken:YapAdmin`);
+  await rawSubmit(token, { actAs: [admin], label: "ext-mint", commands: [{ ExerciseCommand: { templateId: `${PKG}:YapToken:YapAdmin`,
+    contractId: adm.contractId, choice: "YapAdmin_Mint", choiceArgument: { recipient: A.partyId, amount: "50.0000000000" } } }] });
 });
 const A0 = total(await holdings(A)), B0 = total(await holdings(B));
 console.log(`start: ext-alice ${A0}, ext-bob ${B0}\n`);
@@ -76,15 +76,15 @@ await step("reject + withdraw", async () => {
 });
 
 await step("direct transfer", async () => {
-  const [adm] = await acs(token, admin, `${PKG}:CusdtToken:CusdtAdmin`);
-  await rawSubmit(token, { actAs: [admin], label: "ext-pre", commands: [{ ExerciseCommand: { templateId: `${PKG}:CusdtToken:CusdtAdmin`,
-    contractId: adm.contractId, choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver: B.partyId } } }] });
+  const [adm] = await acs(token, admin, `${PKG}:YapToken:YapAdmin`);
+  await rawSubmit(token, { actAs: [admin], label: "ext-pre", commands: [{ ExerciseCommand: { templateId: `${PKG}:YapToken:YapAdmin`,
+    contractId: adm.contractId, choice: "YapAdmin_CreatePreapproval", choiceArgument: { receiver: B.partyId } } }] });
   await run(A, await xfer(A, B, 1));
   ok("direct to preapproved external receiver", total(await holdings(B)) === B0 + 3 && (await sdk.token.transfer.pending(B.partyId)).length === 0);
-  const [pre] = (await acs(token, admin, `${PKG}:CusdtToken:CusdtTransferPreapproval`)).filter((c) => c.createArgument.receiver === B.partyId);
-  await run(B, [[{ ExerciseCommand: { templateId: `${PKG}:CusdtToken:CusdtTransferPreapproval`, contractId: pre.contractId,
-    choice: "CusdtTransferPreapproval_Cancel", choiceArgument: {} } }], []]);
-  ok("external receiver cancels own preapproval", !(await acs(token, admin, `${PKG}:CusdtToken:CusdtTransferPreapproval`)).some((c) => c.createArgument.receiver === B.partyId));
+  const [pre] = (await acs(token, admin, `${PKG}:YapToken:YapTransferPreapproval`)).filter((c) => c.createArgument.receiver === B.partyId);
+  await run(B, [[{ ExerciseCommand: { templateId: `${PKG}:YapToken:YapTransferPreapproval`, contractId: pre.contractId,
+    choice: "YapTransferPreapproval_Cancel", choiceArgument: {} } }], []]);
+  ok("external receiver cancels own preapproval", !(await acs(token, admin, `${PKG}:YapToken:YapTransferPreapproval`)).some((c) => c.createArgument.receiver === B.partyId));
 });
 
 await step("merge", async () => {

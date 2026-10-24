@@ -1,5 +1,5 @@
-// After uploading a NEW package version (e.g. 0.2.0): archive the old CusdtAdmin and
-// CusdtTransferFactory and create fresh ones from the newest vetted version, so their
+// After uploading a NEW package version (e.g. 0.2.0): archive the old YapAdmin and
+// YapTransferFactory and create fresh ones from the newest vetted version, so their
 // interface implementation / choices are the new code. Holdings are left alone.
 // Usage: node scripts/8-rotate-singletons.mjs
 import { getToken, acs, submit, need, PKG } from "./lib.mjs";
@@ -8,8 +8,8 @@ const admin = need("CUSDT_ADMIN_PARTY");
 const token = await getToken();
 const pkgOf = (templateId) => templateId.split(":")[0];
 
-for (const tpl of ["CusdtAdmin", "CusdtTransferFactory", "CusdtAllocationFactory"]) {
-  const name = `${PKG}:CusdtToken:${tpl}`;
+for (const tpl of ["YapAdmin", "YapTransferFactory", "YapAllocationFactory"]) {
+  const name = `${PKG}:YapToken:${tpl}`;
   const old = await acs(token, admin, name);
   console.log(`${tpl}: ${old.length} existing, package ids: ${[...new Set(old.map((c) => pkgOf(c.templateId).slice(0, 12)))].join(", ") || "-"}`);
   // Create first, archive after: if creation fails, the old one is still there.

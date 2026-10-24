@@ -1,4 +1,4 @@
-// LIVE test of cusdt-token 0.7.0 on the real ledger: operator/governor split (a real separate party, cusdt-operator, plays the operator, the admin is the governor).
+// LIVE test of yap-token 0.7.0 on the real ledger: operator/governor split (a real separate party, cusdt-operator, plays the operator, the admin is the governor).
 //   node scripts/37-live-operator.mjs        (.env.testnet = t1; about 1 minute)
 // Everything created here is burnt again at the end (BurnMint), so the supply ends exactly where it started.
 import { loadEnv } from "./lib.mjs";
@@ -7,7 +7,7 @@ import { node, waitFor, sleep } from "./nodes.mjs";
 
 const E = loadEnv(".env.testnet"); if (E.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const n = node(E, "t1"), admin = E.CUSDT_ADMIN_PARTY, ALICE = E.CUSDT_ALICE, BOB = E.CUSDT_BOB, sfx = admin.split("::")[1];
-const HOLD = "#cusdt-token:CusdtToken:CusdtHolding", ADM = "#cusdt-token:CusdtToken:CusdtAdmin", VEST = "#cusdt-token:CusdtToken:CusdtVesting", OPA = "#cusdt-token:CusdtToken:CusdtOperatorAuthority", PRE = "#cusdt-token:CusdtToken:CusdtTransferPreapproval", BMF = "#cusdt-token:CusdtToken:CusdtBurnMintFactory";
+const HOLD = "#yap-token:YapToken:YapHolding", ADM = "#yap-token:YapToken:YapAdmin", VEST = "#yap-token:YapToken:YapVesting", OPA = "#yap-token:YapToken:YapOperatorAuthority", PRE = "#yap-token:YapToken:YapTransferPreapproval", BMF = "#yap-token:YapToken:YapBurnMintFactory";
 const I_BM = "#splice-api-token-burn-mint-v1:Splice.Api.Token.BurnMintV1:BurnMintFactory";
 const inst = { admin, id: "YAP" }, noCtx = { context: { values: {} }, meta: { values: {} } };
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
@@ -40,7 +40,7 @@ const bm = async (bf, inputs, owners) => tx([admin, ...owners], [ex(I_BM, bf.con
 async function group(name, fn) { console.log(`-- ${name}`); try { await fn(); } catch (e) { fail++; console.log(`FAIL  ${name} threw: ${short(e).slice(0, 400)}`); } }
 
 const [adm] = await n.acs(admin, ADM), [bf] = await n.acs(admin, BMF);
-if (!adm || !bf) throw new Error("CusdtAdmin / CusdtBurnMintFactory not found on the ledger (is 0.7.0 deployed?)");
+if (!adm || !bf) throw new Error("YapAdmin / YapBurnMintFactory not found on the ledger (is 0.7.0 deployed?)");
 let minted = 0;
 const OP = E.CUSDT_OPERATOR ?? BOB;
 const auths = async () => n.acs(admin, OPA);
@@ -48,27 +48,27 @@ const allowance = async () => { const a = await auths(); return a.length === 1 ?
 for (const a of await auths()) await tx([admin], [ex(OPA, a.contractId, "Archive")]); // start clean
 
 await group("appoint the operator, mint inside the allowance, allowance shrinks", async () => {
-  let x = await refused(() => tx([OP], [ex(ADM, adm.contractId, "CusdtAdmin_AppointOperator", { operator: OP, allowance: amt(9000), validUntil: iso(3600000) })]));
+  let x = await refused(() => tx([OP], [ex(ADM, adm.contractId, "YapAdmin_AppointOperator", { operator: OP, allowance: amt(9000), validUntil: iso(3600000) })]));
   ok("the operator cannot appoint itself", x.refused);
-  x = await refused(() => tx([admin], [ex(ADM, adm.contractId, "CusdtAdmin_AppointOperator", { operator: admin, allowance: amt(9000), validUntil: iso(3600000) })]));
+  x = await refused(() => tx([admin], [ex(ADM, adm.contractId, "YapAdmin_AppointOperator", { operator: admin, allowance: amt(9000), validUntil: iso(3600000) })]));
   ok("operator must differ from the governor", x.refused && /differ/.test(x.msg), x.msg.slice(-90));
-  await tx([admin], [ex(ADM, adm.contractId, "CusdtAdmin_AppointOperator", { operator: OP, allowance: amt(9000), validUntil: iso(3600000) })]);
+  await tx([admin], [ex(ADM, adm.contractId, "YapAdmin_AppointOperator", { operator: OP, allowance: amt(9000), validUntil: iso(3600000) })]);
   const [a] = await waitFor(async () => { const r = await auths(); return r.length ? r : null; }).then((v) => v.v ?? v);
   ok("authority exists with allowance 9000 micro", (await allowance()) === 9000);
-  let r = await tx([OP], [ex(OPA, a.contractId, "CusdtOperator_Mint", { recipient: ALICE, amount: amt(5000) })]); minted += 5000;
-  ok("operator minted 5000 micro for alice", !!resultOf(r, "CusdtOperator_Mint"));
+  let r = await tx([OP], [ex(OPA, a.contractId, "YapOperator_Mint", { recipient: ALICE, amount: amt(5000) })]); minted += 5000;
+  ok("operator minted 5000 micro for alice", !!resultOf(r, "YapOperator_Mint"));
   ok("allowance is now 4000", (await waitFor(async () => (await allowance()) === 4000 || null)).v === true);
   await books("operator mint", 5000);
   const [a2] = await auths();
-  x = await refused(() => tx([OP], [ex(OPA, a2.contractId, "CusdtOperator_Mint", { recipient: ALICE, amount: amt(4001) })]));
+  x = await refused(() => tx([OP], [ex(OPA, a2.contractId, "YapOperator_Mint", { recipient: ALICE, amount: amt(4001) })]));
   ok("over the allowance is refused", x.refused && /allowance/.test(x.msg), x.msg.slice(-90));
   x = await refused(() => tx([OP], [ex(OPA, a2.contractId, "Archive")]));
   ok("operator cannot archive its own authority", x.refused);
-  x = await refused(() => tx([OP], [ex(OPA, a2.contractId, "CusdtOperatorAuthority_SetAllowance", { newAllowance: amt(99999999), newValidUntil: iso(86400000) })]));
+  x = await refused(() => tx([OP], [ex(OPA, a2.contractId, "YapOperatorAuthority_SetAllowance", { newAllowance: amt(99999999), newValidUntil: iso(86400000) })]));
   ok("operator cannot raise its own allowance", x.refused);
-  x = await refused(() => tx([OP], [ex(ADM, adm.contractId, "CusdtAdmin_Mint", { recipient: OP, amount: amt(1) })]));
+  x = await refused(() => tx([OP], [ex(ADM, adm.contractId, "YapAdmin_Mint", { recipient: OP, amount: amt(1) })]));
   ok("operator cannot use the governor's mint", x.refused);
-  x = await refused(() => tx([ALICE], [ex(OPA, a2.contractId, "CusdtOperator_Mint", { recipient: ALICE, amount: amt(1) })]));
+  x = await refused(() => tx([ALICE], [ex(OPA, a2.contractId, "YapOperator_Mint", { recipient: ALICE, amount: amt(1) })]));
   ok("only the named operator can use the authority", x.refused);
   const h = (await free(ALICE)).filter((c) => !known.has(c.contractId));
   x = await refused(() => tx([OP], [ex(HOLD, h[0].contractId, "Archive")]));
@@ -77,26 +77,26 @@ await group("appoint the operator, mint inside the allowance, allowance shrinks"
 
 await group("operator: preapproval and vesting grant", async () => {
   const [a] = await auths();
-  const r = await tx([OP], [ex(OPA, a.contractId, "CusdtOperator_CreatePreapproval", { receiver: OP })]);
-  ok("operator created a preapproval (non-consuming)", !!resultOf(r, "CusdtOperator_CreatePreapproval"));
+  const r = await tx([OP], [ex(OPA, a.contractId, "YapOperator_CreatePreapproval", { receiver: OP })]);
+  ok("operator created a preapproval (non-consuming)", !!resultOf(r, "YapOperator_CreatePreapproval"));
   const [b] = await auths();
-  const g = await tx([OP], [ex(OPA, b.contractId, "CusdtOperator_GrantVesting", { beneficiary: ALICE, amount: amt(3000), start: iso(-1000), cliff: iso(-1000), finish: iso(600000), revocable: true })]); minted += 3000;
-  ok("operator granted a 3000-micro vesting", !!resultOf(g, "CusdtOperator_GrantVesting"));
+  const g = await tx([OP], [ex(OPA, b.contractId, "YapOperator_GrantVesting", { beneficiary: ALICE, amount: amt(3000), start: iso(-1000), cliff: iso(-1000), finish: iso(600000), revocable: true })]); minted += 3000;
+  ok("operator granted a 3000-micro vesting", !!resultOf(g, "YapOperator_GrantVesting"));
   ok("allowance is now 1000", (await waitFor(async () => (await allowance()) === 1000 || null)).v === true);
   const [v] = await n.acs(admin, VEST);
-  const x = await refused(() => tx([OP], [ex(VEST, v.contractId, "CusdtVesting_Revoke")]));
+  const x = await refused(() => tx([OP], [ex(VEST, v.contractId, "YapVesting_Revoke")]));
   ok("operator cannot revoke a vesting", x.refused);
-  await tx([admin], [ex(VEST, v.contractId, "CusdtVesting_Revoke")]);
+  await tx([admin], [ex(VEST, v.contractId, "YapVesting_Revoke")]);
   await books("operator vesting + governor revoke", 5000 + 3000);
 });
 
 await group("governor tops up, then revokes the operator", async () => {
   const [a] = await auths();
-  await tx([admin], [ex(OPA, a.contractId, "CusdtOperatorAuthority_SetAllowance", { newAllowance: amt(2000), newValidUntil: iso(3600000) })]);
+  await tx([admin], [ex(OPA, a.contractId, "YapOperatorAuthority_SetAllowance", { newAllowance: amt(2000), newValidUntil: iso(3600000) })]);
   ok("allowance topped up to 2000", (await waitFor(async () => (await allowance()) === 2000 || null)).v === true);
   const [b] = await auths();
   await tx([admin], [ex(OPA, b.contractId, "Archive")]);
-  const x = await refused(() => tx([OP], [ex(OPA, b.contractId, "CusdtOperator_Mint", { recipient: ALICE, amount: amt(1) })]));
+  const x = await refused(() => tx([OP], [ex(OPA, b.contractId, "YapOperator_Mint", { recipient: ALICE, amount: amt(1) })]));
   ok("after revoking, the operator can do nothing", x.refused);
 });
 

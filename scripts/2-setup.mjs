@@ -1,5 +1,5 @@
 // One-time setup on testnet: allocate the cusdt-admin party (participant-hosted), give the
-// ledger user rights on it, and create the CusdtAdmin + CusdtTransferFactory singleton contracts.
+// ledger user rights on it, and create the YapAdmin + YapTransferFactory singleton contracts.
 // Safe to re-run: skips whatever already exists.
 import { getToken, ledger, acs, submit, need, env, PKG } from "./lib.mjs";
 
@@ -31,8 +31,8 @@ await ledger(token, `/v2/users/${encodeURIComponent(userId)}/rights`, {
 });
 console.log("rights granted to", userId);
 
-for (const tpl of ["CusdtAdmin", "CusdtTransferFactory"]) {
-  const templateId = `${PKG}:CusdtToken:${tpl}`;
+for (const tpl of ["YapAdmin", "YapTransferFactory"]) {
+  const templateId = `${PKG}:YapToken:${tpl}`;
   if ((await acs(token, admin, templateId)).length) { console.log(tpl, "already exists"); continue; }
   await submit(token, {
     actAs: [admin], label: `create-${tpl}`,

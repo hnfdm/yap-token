@@ -10,9 +10,9 @@ const suffix = admin.split("::")[1];
 const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
 const registry = process.env.CUSDT_REGISTRY_URL || "http://localhost:8787";
 const token = await getToken();
-const HOLDING = `${PKG}:CusdtToken:CusdtHolding`;
-const PRE = `${PKG}:CusdtToken:CusdtTransferPreapproval`;
-const INSTR = `${PKG}:CusdtToken:CusdtTransferInstruction`;
+const HOLDING = `${PKG}:YapToken:YapHolding`;
+const PRE = `${PKG}:YapToken:YapTransferPreapproval`;
+const INSTR = `${PKG}:YapToken:YapTransferInstruction`;
 const KEY = "cusdt.mahawallet.xyz/transfer-preapproval";
 const IFACE_TF = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferFactory";
 const IFACE_TI = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferInstruction";
@@ -87,7 +87,7 @@ if (!(await bobPre()).length) throw new Error("bob has no preapproval; run 9-pre
 {
   const [pre] = await bobPre();
   await submit(token, { actAs: [BOB], label: "cancel", commands: [{ ExerciseCommand: { templateId: PRE, contractId: pre.contractId,
-    choice: "CusdtTransferPreapproval_Cancel", choiceArgument: {} } }] });
+    choice: "YapTransferPreapproval_Cancel", choiceArgument: {} } }] });
   ok("receiver can cancel own preapproval", (await bobPre()).length === 0);
   const t = mk(ALICE, BOB, 1, await held(ALICE));
   const f = await factory(t);

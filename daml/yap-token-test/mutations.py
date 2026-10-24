@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-# Mutation test for the cUSDT contract: break ONE rule at a time, rebuild, run the Daml Script tests and see whether some test notices.
-#   python3 mutations.py <workdir>      workdir contains cusdt-token/ and cusdt-token-test/ (both as in the repo)
+# Mutation test for the YAP contract: break ONE rule at a time, rebuild, run the Daml Script tests and see whether some test notices.
+#   python3 mutations.py <workdir>      workdir contains yap-token/ and yap-token-test/ (both as in the repo)
 # A mutation is "killed" when at least one test fails (or the build breaks: invalid mutation). It SURVIVES when every test still passes:
 # either that rule has no test (a gap) or the mutation is behaviour-neutral.
 import os, re, subprocess, sys
 
 W = sys.argv[1]
-SRC = os.path.join(W, "cusdt-token", "daml", "CusdtToken.daml")
-C, T = os.path.join(W, "cusdt-token"), os.path.join(W, "cusdt-token-test")
+SRC = os.path.join(W, "yap-token", "daml", "YapToken.daml")
+C, T = os.path.join(W, "yap-token"), os.path.join(W, "yap-token-test")
 ORIG = open(SRC).read()
 
 # (name, old text, new text, nth occurrence of `old` (1-based))
@@ -32,7 +32,7 @@ M = [
  ("mint: precision", 'assertPrecision "mint amount" amount', 'pure ()', 1),
  ("holding: ensure amount > 0", 'ensure amount > 0.0', 'ensure True', 1),
  ("transfer: expectedAdmin", '(arg.expectedAdmin == admin)', 'True', 2),
- ("transfer: instrument", '(t.instrumentId == cusdtInstrumentId admin)', 'True', 1),
+ ("transfer: instrument", '(t.instrumentId == yapInstrumentId admin)', 'True', 1),
  ("transfer: amount positive", '(t.amount > 0.0)', 'True', 1),
  ("transfer: precision", 'assertPrecision "amount" t.amount', 'pure ()', 1),
  ("transfer: inputs required", '(not (null t.inputHoldingCids))', 'True', 1),
@@ -41,10 +41,10 @@ M = [
  ("preapproval: admin", '(p.admin == admin)', 'True', 1),
  ("preapproval: receiver", '(p.receiver == t.receiver)', 'True', 1),
  ("accept: expiry", '(now < transfer.executeBefore)', 'True', 1),
- ("reject: refund to receiver (wrong)", 'transferInstruction_rejectImpl _self _arg = do\n        h <- create CusdtHolding with\n          admin, owner = transfer.sender', 'transferInstruction_rejectImpl _self _arg = do\n        h <- create CusdtHolding with\n          admin, owner = transfer.receiver', 1),
- ("withdraw: refund to receiver (wrong)", 'transferInstruction_withdrawImpl _self _arg = do\n        h <- create CusdtHolding with\n          admin, owner = transfer.sender', 'transferInstruction_withdrawImpl _self _arg = do\n        h <- create CusdtHolding with\n          admin, owner = transfer.receiver', 1),
+ ("reject: refund to receiver (wrong)", 'transferInstruction_rejectImpl _self _arg = do\n        h <- create YapHolding with\n          admin, owner = transfer.sender', 'transferInstruction_rejectImpl _self _arg = do\n        h <- create YapHolding with\n          admin, owner = transfer.receiver', 1),
+ ("withdraw: refund to receiver (wrong)", 'transferInstruction_withdrawImpl _self _arg = do\n        h <- create YapHolding with\n          admin, owner = transfer.sender', 'transferInstruction_withdrawImpl _self _arg = do\n        h <- create YapHolding with\n          admin, owner = transfer.receiver', 1),
  ("allocate: expectedAdmin", '(arg.expectedAdmin == admin)', 'True', 4),
- ("allocate: instrument", '(leg.instrumentId == cusdtInstrumentId admin)', 'True', 1),
+ ("allocate: instrument", '(leg.instrumentId == yapInstrumentId admin)', 'True', 1),
  ("allocate: amount positive", '(leg.amount > 0.0)', 'True', 1),
  ("allocate: precision", 'assertPrecision "amount" leg.amount', 'pure ()', 1),
  ("allocate: inputs required", '(not (null arg.inputHoldingCids))', 'True', 1),
@@ -54,8 +54,8 @@ M = [
  ("execute: settleBefore window", '(now < allocation.settlement.settleBefore)', 'True', 1),
  ("proposal: sender /= receiver", 'ensure sender /= receiver', 'ensure True', 1),
  ("proposal: expiry on accept", '(now < expiresAt)', 'True', 1),
- ("revoke by receiver needs sender too", 'choice CusdtSettlement_RevokeByReceiver : ()\n      controller receiver', 'choice CusdtSettlement_RevokeByReceiver : ()\n      controller receiver, sender', 1),
- ("revoke by sender needs receiver too", 'choice CusdtSettlement_RevokeBySender : ()\n      controller sender', 'choice CusdtSettlement_RevokeBySender : ()\n      controller sender, receiver', 1),
+ ("revoke by receiver needs sender too", 'choice YapSettlement_RevokeByReceiver : ()\n      controller receiver', 'choice YapSettlement_RevokeByReceiver : ()\n      controller receiver, sender', 1),
+ ("revoke by sender needs receiver too", 'choice YapSettlement_RevokeBySender : ()\n      controller sender', 'choice YapSettlement_RevokeBySender : ()\n      controller sender, receiver', 1),
  ("delegation: expiry", '(now < d.expiresAt)', 'True', 1),
  ("delegation: executor", '(v.allocation.settlement.executor == d.executor)', 'True', 1),
  ("delegation: sender", '(v.allocation.transferLeg.sender == d.sender)', 'True', 1),
@@ -64,7 +64,7 @@ M = [
  ("Execute needs sender too", 'controller executor', 'controller executor, sender', 1),
  ("burnmint: publicFetch expectedAdmin", '(arg.expectedAdmin == admin)', 'True', 5),
  ("burnmint: expectedAdmin", '(arg.expectedAdmin == admin)', 'True', 6),
- ("burnmint: instrument", '(arg.instrumentId == cusdtInstrumentId admin)', 'True', 1),
+ ("burnmint: instrument", '(arg.instrumentId == yapInstrumentId admin)', 'True', 1),
  ("burnmint: something to do", '(not (null arg.inputHoldingCids && null arg.outputs))', 'True', 1),
  ("burnmint: input admin", '(h.admin == admin)', 'True', 2),
  ("burnmint: input locked", '(not (lockActive now h.lock))', 'True', 2),
@@ -77,7 +77,7 @@ M = [
  ("v2 reject: receiver must be an actor", '(transfer.receiver `elem` arg.actors)', 'True', 2),
  ("v2 withdraw: sender must be an actor", '(transfer.sender `elem` arg.actors)', 'True', 1),
  ("v2 account: plain owner account", '(a.provider == None && a.id == "")', 'True', 1),
- ("v2 transfer: instrument", '(t.instrumentId == cusdtInstrumentIdV2 admin)', 'True', 1),
+ ("v2 transfer: instrument", '(t.instrumentId == yapInstrumentIdV2 admin)', 'True', 1),
  ("v2 transfer: amount positive", '(t.amount > 0.0)', 'True', 2),
  ("v2 transfer: inputs required", '(not (null t.inputHoldingCids))', 'True', 2),
  ("v2 transfer: requestedAt in the past", '(t.requestedAt <= now)', 'True', 2),

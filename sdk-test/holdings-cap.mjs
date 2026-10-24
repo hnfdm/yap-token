@@ -1,8 +1,8 @@
-// What happens when ONE party holds more than 200 cUSDT holdings (dust spam)?
+// What happens when ONE party holds more than 200 YAP holdings (dust spam)?
 //  - the Ledger JSON API caps ACS answers at 200: who is affected (issuer snapshot, the party itself, the Wallet SDK)?
 //  - can a party still spend ALL of them in one transaction (250 inputs)?
 //  - does the SDK's merge consolidate a big pile?
-// Uses a dedicated party `cusdt-dust` (1 micro-cUSDT x 250, then x 150). It keeps its (consolidated) 400 micro afterwards.
+// Uses a dedicated party `cusdt-dust` (1 micro-YAP x 250, then x 150). It keeps its (consolidated) 400 micro afterwards.
 import { SDK } from "@canton-network/wallet-sdk";
 import { getToken, ledger, acs, need, PKG } from "../scripts/lib.mjs";
 import { T, mu, snapshot, supply, checkInvariants } from "../scripts/invariants.mjs";
@@ -39,8 +39,8 @@ async function mintDust(n) {
   const [adm] = await acs(token, admin, T.ADMIN); const cids = []; let cost = 0;
   for (let left = n; left > 0;) {
     const k = Math.min(50, left);
-    const r = await tx([admin], Array.from({ length: k }, () => ({ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "CusdtAdmin_Mint", choiceArgument: { recipient: DUST, amount: "0.0000010000" } } })));
-    for (const e of r.transaction.events) if (e.ExercisedEvent?.choice === "CusdtAdmin_Mint") cids.push(e.ExercisedEvent.exerciseResult);
+    const r = await tx([admin], Array.from({ length: k }, () => ({ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "YapAdmin_Mint", choiceArgument: { recipient: DUST, amount: "0.0000010000" } } })));
+    for (const e of r.transaction.events) if (e.ExercisedEvent?.choice === "YapAdmin_Mint") cids.push(e.ExercisedEvent.exerciseResult);
     cost = r.transaction.paidTrafficCost; left -= k;
   }
   note(`minted ${n} x 1 micro (last 50-mint batch: paidTrafficCost ${cost})`);
@@ -66,7 +66,7 @@ try { await acs(token, DUST, T.HOLDING); ok("the dust party's own ACS query", fa
 catch (e) { ok("the party itself hits the cap too", isCap(short(e)), short(e).slice(0, 90)); }
 
 // Observed 10 Oct 2026 (wallet-sdk 1.5.3): the DEFAULT list throws the 413 cap error once a party holds >200 holdings;
-// `continueUntilCompletion: true` works. This is SDK behaviour, not cUSDT behaviour; if a newer SDK fixes it, this check flips.
+// `continueUntilCompletion: true` works. This is SDK behaviour, not YAP behaviour; if a newer SDK fixes it, this check flips.
 try { const l = await sdkList(); ok("SDK default list throws on >200 holdings (use continueUntilCompletion)", false, `unexpectedly returned ${l.length}`); }
 catch (e) { ok("SDK default list throws on >200 holdings (use continueUntilCompletion)", true, "threw the cap error as documented"); }
 try { const all = await sdkList({ continueUntilCompletion: true }); ok("SDK list with continueUntilCompletion returns everything", all.length === 250, `${all.length} returned`); }
@@ -80,7 +80,7 @@ try {
   const r = await tx([DUST], [{ ExerciseCommand: { templateId: IF_TF, contractId: f.factoryId, choice: "TransferFactory_Transfer",
     choiceArgument: { expectedAdmin: admin, transfer: t, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
   bigOk = true; note(`250-input transfer: paidTrafficCost ${r.transaction.paidTrafficCost}`);
-  const instr = r.transaction.events.find((e) => e.CreatedEvent?.templateId?.endsWith(":CusdtTransferInstruction"))?.CreatedEvent;
+  const instr = r.transaction.events.find((e) => e.CreatedEvent?.templateId?.endsWith(":YapTransferInstruction"))?.CreatedEvent;
   ok("one transaction can spend all 250 inputs", true, "accepted");
   if (instr) { await tx([DUST], [{ ExerciseCommand: { templateId: IF_TI, contractId: instr.contractId, choice: "TransferInstruction_Withdraw", choiceArgument: { extraArgs: { context: { values: {} }, meta: { values: {} } } } } }]); note("withdrawn again: the 250 dust holdings are now ONE holding"); }
 } catch (e) { ok("one transaction can spend all 250 inputs", false, short(e).slice(0, 200)); }

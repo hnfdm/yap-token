@@ -1,5 +1,5 @@
 sdk-version: 3.5.11
-name: cusdt-token
+name: yap-token
 version: 0.8.0
 source: daml
 dependencies:

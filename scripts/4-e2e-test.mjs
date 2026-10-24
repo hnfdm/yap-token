@@ -10,7 +10,7 @@ if (!sender || !receiver || !(Number(amount) > 0)) throw new Error("usage: 4-e2e
 const admin = need("CUSDT_ADMIN_PARTY");
 const registry = process.env.CUSDT_REGISTRY_URL || "http://localhost:8787";
 const token = await getToken();
-const HOLDING = `${PKG}:CusdtToken:CusdtHolding`;
+const HOLDING = `${PKG}:YapToken:YapHolding`;
 const IFACE_TF = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferFactory";
 const IFACE_TI = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferInstruction";
 
@@ -19,7 +19,7 @@ const sum = (hs) => hs.reduce((s, h) => s + Number(h.createArgument.amount), 0);
 
 const sHold = await balance(sender);
 console.log(`sender holdings: ${sHold.length}, total ${sum(sHold)}`);
-if (sum(sHold) < Number(amount)) throw new Error("sender has insufficient cUSDT (mint first)");
+if (sum(sHold) < Number(amount)) throw new Error("sender has insufficient YAP (mint first)");
 
 const transfer = {
   sender, receiver, amount: Number(amount).toFixed(10),
@@ -49,9 +49,9 @@ await submit(token, {
 console.log("transfer submitted");
 
 if (factory.transferKind === "offer") {
-  const pending = await acs(token, receiver, `${PKG}:CusdtToken:CusdtTransferInstruction`);
+  const pending = await acs(token, receiver, `${PKG}:YapToken:YapTransferInstruction`);
   const ti = pending.find((c) => c.createArgument.transfer.sender === sender);
-  if (!ti) throw new Error("pending CusdtTransferInstruction not visible to receiver");
+  if (!ti) throw new Error("pending YapTransferInstruction not visible to receiver");
   const cr = await fetch(`${registry}/registry/transfer-instruction/v1/${ti.contractId}/choice-contexts/accept`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ meta: {} }),
   });

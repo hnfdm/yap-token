@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ADMIN = "cusdt-admin::1220aaaa", ALICE = "alice::1220aaaa", BOB = "bob::1220aaaa", CAROL = "carol::1220aaaa";
-const ctr = (tpl, id, arg = {}) => ({ contractEntry: { JsActiveContract: { synchronizerId: "sync::1", createdEvent: { contractId: id, createdEventBlob: "blob-" + id, templateId: `pkg:CusdtToken:${tpl}`, createArgument: arg } } } });
+const ctr = (tpl, id, arg = {}) => ({ contractEntry: { JsActiveContract: { synchronizerId: "sync::1", createdEvent: { contractId: id, createdEventBlob: "blob-" + id, templateId: `pkg:YapToken:${tpl}`, createArgument: arg } } } });
 
 const mock = createServer((req, res) => {
   let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => {
@@ -17,9 +17,9 @@ const mock = createServer((req, res) => {
     if (req.url.endsWith("/v2/state/active-contracts")) {
       const body = JSON.parse(b || "{}");
       const tpl = body.eventFormat?.filtersByParty?.[ADMIN]?.cumulative?.[0]?.identifierFilter?.TemplateFilter?.value?.templateId ?? "";
-      if (tpl.endsWith("CusdtTransferFactory")) return j([ctr("CusdtTransferFactory", "factory-1")]);
-      if (tpl.endsWith("CusdtAllocationFactory")) return j([ctr("CusdtAllocationFactory", "afactory-1")]);
-      if (tpl.endsWith("CusdtTransferPreapproval")) return j([ctr("CusdtTransferPreapproval", "pre-bob", { admin: ADMIN, receiver: BOB })]);
+      if (tpl.endsWith("YapTransferFactory")) return j([ctr("YapTransferFactory", "factory-1")]);
+      if (tpl.endsWith("YapAllocationFactory")) return j([ctr("YapAllocationFactory", "afactory-1")]);
+      if (tpl.endsWith("YapTransferPreapproval")) return j([ctr("YapTransferPreapproval", "pre-bob", { admin: ADMIN, receiver: BOB })]);
       return j([]);
     }
     res.writeHead(404); res.end("{}");

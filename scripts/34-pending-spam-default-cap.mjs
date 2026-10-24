@@ -14,7 +14,7 @@ if (OURS.INSECURE_TLS === "1" || CL.INSECURE_TLS === "1") process.env.NODE_TLS_R
 const ours = node(OURS, "ours"), cl = node(CL, "cl");
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, DAVE = CL.CUSDT_CL_DAVE;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
-const HOLD = "#cusdt-token:CusdtToken:CusdtHolding";
+const HOLD = "#yap-token:YapToken:YapHolding";
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 const extra = { extraArgs: { context: { values: {} }, meta: { values: {} } } };
@@ -40,13 +40,13 @@ async function cleanup() {
     for (const part of chunks(left, 25)) await metered([ALICE], part.map((i) => ({ ExerciseCommand: { templateId: IF.TI, contractId: i.contractId, choice: "TransferInstruction_Withdraw", choiceArgument: extra } })));
     await sleep(4000);
     let hs = await free();
-    while (hs.length > 1) { const b = hs.slice(0, 100); await metered([ALICE], [{ ExerciseCommand: { templateId: HOLD, contractId: b[0].contractId, choice: "CusdtHolding_Merge", choiceArgument: { otherCids: b.slice(1).map((h) => h.contractId) } } }]); hs = await free(); }
+    while (hs.length > 1) { const b = hs.slice(0, 100); await metered([ALICE], [{ ExerciseCommand: { templateId: HOLD, contractId: b[0].contractId, choice: "YapHolding_Merge", choiceArgument: { otherCids: b.slice(1).map((h) => h.contractId) } } }]); hs = await free(); }
     const extraMu = supply(await snapshot(await ours.token(), admin)) - expected0;
     if (extraMu > 0 && hs[0] && mu(hs[0]) > extraMu) {
-      const r = await metered([ALICE], [{ ExerciseCommand: { templateId: HOLD, contractId: hs[0].contractId, choice: "CusdtHolding_Split", choiceArgument: { splitAmount: amt(extraMu) } } }]);
-      const ex = r.transaction.events.find((e) => e.ExercisedEvent?.choice === "CusdtHolding_Split")?.ExercisedEvent?.exerciseResult;
+      const r = await metered([ALICE], [{ ExerciseCommand: { templateId: HOLD, contractId: hs[0].contractId, choice: "YapHolding_Split", choiceArgument: { splitAmount: amt(extraMu) } } }]);
+      const ex = r.transaction.events.find((e) => e.ExercisedEvent?.choice === "YapHolding_Split")?.ExercisedEvent?.exerciseResult;
       const cid = Array.isArray(ex) ? ex[0] : (ex?._1 ?? ex?.["_1"]);
-      if (cid) await metered([ALICE], [{ ExerciseCommand: { templateId: HOLD, contractId: cid, choice: "CusdtHolding_Burn", choiceArgument: {} } }]); else console.log("      could not read the split result: burn " + extraMu + " micro by hand");
+      if (cid) await metered([ALICE], [{ ExerciseCommand: { templateId: HOLD, contractId: cid, choice: "YapHolding_Burn", choiceArgument: {} } }]); else console.log("      could not read the split result: burn " + extraMu + " micro by hand");
     }
   } catch (e) { console.log("cleanup issue: " + short(e).slice(-200)); }
 }
@@ -55,8 +55,8 @@ try {
   const [adm] = await ours.acs(admin, T.ADMIN);
   for (let left = N; left > 0;) {
     const k = Math.min(50, left);
-    const r = await metered([admin], Array.from({ length: k }, () => ({ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "CusdtAdmin_Mint", choiceArgument: { recipient: ALICE, amount: amt(1) } } })));
-    for (const e of r.transaction.events) if (e.ExercisedEvent?.choice === "CusdtAdmin_Mint") minted.push(e.ExercisedEvent.exerciseResult);
+    const r = await metered([admin], Array.from({ length: k }, () => ({ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "YapAdmin_Mint", choiceArgument: { recipient: ALICE, amount: amt(1) } } })));
+    for (const e of r.transaction.events) if (e.ExercisedEvent?.choice === "YapAdmin_Mint") minted.push(e.ExercisedEvent.exerciseResult);
     left -= k;
   }
   ok("minted N x 1 micro to alice", minted.length === N, `metered ${bytes} B`);

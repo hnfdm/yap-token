@@ -1,5 +1,5 @@
 // Allocation / settlement behaviour on testnet (v0.3.0). Executor = the admin party.
-// Alice needs >= 30 spendable cUSDT. Net balances are restored except the executed 10 (alice -> bob),
+// Alice needs >= 30 spendable YAP. Net balances are restored except the executed 10 (alice -> bob),
 // which is sent back at the end.
 import { getToken, acs, submit, need, PKG } from "./lib.mjs";
 
@@ -8,8 +8,8 @@ const suffix = admin.split("::")[1];
 const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
 const registry = process.env.CUSDT_REGISTRY_URL || "http://localhost:8787";
 const token = await getToken();
-const HOLDING = `${PKG}:CusdtToken:CusdtHolding`;
-const ALLOC = `${PKG}:CusdtToken:CusdtAllocation`;
+const HOLDING = `${PKG}:YapToken:YapHolding`;
+const ALLOC = `${PKG}:YapToken:YapAllocation`;
 const IF_AF = "#splice-api-token-allocation-instruction-v1:Splice.Api.Token.AllocationInstructionV1:AllocationFactory";
 const IF_A = "#splice-api-token-allocation-v1:Splice.Api.Token.AllocationV1:Allocation";
 const IF_TF = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferFactory";
@@ -59,7 +59,7 @@ async function mustFail(name, want, fn) {
 
 const A0 = sum(await all(ALICE)), B0 = sum(await all(BOB));
 console.log(`start: alice ${A0}, bob ${B0}\n`);
-if (sum(await free(ALICE)) < 30) throw new Error("alice needs >= 30 spendable cUSDT");
+if (sum(await free(ALICE)) < 30) throw new Error("alice needs >= 30 spendable YAP");
 
 // A. allocate -> funds locked
 let sp = spec(ALICE, BOB, 10);
@@ -139,7 +139,7 @@ ok("balances untouched by failed attempts", sum(await free(ALICE)) === A0 - 10);
     commands: [{ ExerciseCommand: { templateId: IF_TF, contractId: f.factoryId, choice: "TransferFactory_Transfer",
       choiceArgument: { expectedAdmin: admin, transfer: t, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }] });
   const IF_TI = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferInstruction";
-  const ti = (await acs(token, ALICE, `${PKG}:CusdtToken:CusdtTransferInstruction`)).find((c) => c.createArgument.transfer.sender === BOB);
+  const ti = (await acs(token, ALICE, `${PKG}:YapToken:YapTransferInstruction`)).find((c) => c.createArgument.transfer.sender === BOB);
   if (ti) await submit(token, { actAs: [ALICE], label: "restore-acc", commands: [{ ExerciseCommand: { templateId: IF_TI, contractId: ti.contractId,
     choice: "TransferInstruction_Accept", choiceArgument: extra } }] });
   console.log(`restored: alice ${sum(await all(ALICE))}, bob ${sum(await all(BOB))} (started ${A0}/${B0})`);

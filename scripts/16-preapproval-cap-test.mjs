@@ -22,8 +22,8 @@ async function createPre(receiver, n) {
   const out = []; const adm = await adminCid();
   while (n > 0) {
     const k = Math.min(50, n);
-    const r = await tx(Array.from({ length: k }, () => ({ ExerciseCommand: { templateId: T.ADMIN, contractId: adm, choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver } } })));
-    for (const e of r.transaction.events) if (e.ExercisedEvent?.choice === "CusdtAdmin_CreatePreapproval") out.push(e.ExercisedEvent.exerciseResult);
+    const r = await tx(Array.from({ length: k }, () => ({ ExerciseCommand: { templateId: T.ADMIN, contractId: adm, choice: "YapAdmin_CreatePreapproval", choiceArgument: { receiver } } })));
+    for (const e of r.transaction.events) if (e.ExercisedEvent?.choice === "YapAdmin_CreatePreapproval") out.push(e.ExercisedEvent.exerciseResult);
     traffic.push({ op: `create ${k} preapprovals`, cost: r.transaction.paidTrafficCost });
     n -= k;
   }

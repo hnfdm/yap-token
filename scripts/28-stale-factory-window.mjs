@@ -1,5 +1,5 @@
 // How long are transfers broken after the factory singleton is rotated? The registry caches the factory (blob + cid) for 30 s.
-// Rotates CusdtTransferFactory (create new, archive old), then keeps asking the registry and retrying a 1-micro SELF transfer
+// Rotates YapTransferFactory (create new, archive old), then keeps asking the registry and retrying a 1-micro SELF transfer
 // (alice -> alice, no pending offer left behind) until it works. Reports the stale window. All on our node, small.
 //   node scripts/28-stale-factory-window.mjs
 import { loadEnv } from "./lib.mjs";
@@ -11,7 +11,7 @@ const OURS = loadEnv(".env.testnet");
 if (OURS.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
-const TFT = "#cusdt-token:CusdtToken:CusdtTransferFactory", HOLD = "#cusdt-token:CusdtToken:CusdtHolding";
+const TFT = "#yap-token:YapToken:YapTransferFactory", HOLD = "#yap-token:YapToken:YapHolding";
 const ours = node(OURS, "ours");
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 let pass = 0, fail = 0;

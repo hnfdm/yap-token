@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# cUSDT with the decentralized party cusdt-gov as admin: distribute the DARs, then create the four singleton contracts.
-# Put cusdt-token-@@VERSION@@.dar and cusdt-governance-0.3.0.dar into /opt/decman/dars/ on t1 first (SFTP), then:
+# YAP with the decentralized party cusdt-gov as admin: distribute the DARs, then create the four singleton contracts.
+# Put yap-token-@@VERSION@@.dar and yap-governance-0.3.0.dar into /opt/decman/dars/ on t1 first (SFTP), then:
 #   t1:  bash decman-cusdt-on-vps.sh dars        t2:  bash decman-cusdt-on-vps.sh accept-dars
 #   t1:  bash decman-cusdt-on-vps.sh contracts   t2:  bash decman-cusdt-on-vps.sh accept-contracts
 #   either: bash decman-cusdt-on-vps.sh status
@@ -25,11 +25,11 @@ for i in j.get("invitations",[]):
 case "${1:-}" in
   dars)
     cd /opt/decman/dars || exit 1
-    echo "$TOKEN_SHA  cusdt-token-@@VERSION@@.dar" | sha256sum -c - || exit 1
-    echo "$GOV_SHA  cusdt-governance-0.3.0.dar" | sha256sum -c - || exit 1
+    echo "$TOKEN_SHA  yap-token-@@VERSION@@.dar" | sha256sum -c - || exit 1
+    echo "$GOV_SHA  yap-governance-0.3.0.dar" | sha256sum -c - || exit 1
     python3 - $P2 > /tmp/cdars.json <<'PY'
 import base64,json,sys
-fs=["cusdt-token-@@VERSION@@.dar","cusdt-governance-0.3.0.dar"]
+fs=["yap-token-@@VERSION@@.dar","yap-governance-0.3.0.dar"]
 print(json.dumps({"dar_files":[{"filename":f,"data":base64.b64encode(open(f,"rb").read()).decode()} for f in fs],"peer_ids":[sys.argv[1]]}))
 PY
     T=$(decman_token)
@@ -40,9 +40,9 @@ PY
     BODY=$(python3 - "$DEC" "$P1" "$P2" "$OPPARTY" <<'PY'
 import json,sys
 dec,p1,p2,op=sys.argv[1:5]
-c=lambda i,n:{"id":i,"name":n,"package_id":"#cusdt-token","module_name":"CusdtToken","entity_name":n,"fields":[{"type":"decentralized_party"}]}
+c=lambda i,n:{"id":i,"name":n,"package_id":"#yap-token","module_name":"YapToken","entity_name":n,"fields":[{"type":"decentralized_party"}]}
 print(json.dumps({"decentralized_party_id":dec,"participant_ids":[p1,p2],"participant_parties":[p1,p2],"operator_party":op,
- "contracts":[c("cusdt-admin","CusdtAdmin"),c("cusdt-transfer-factory","CusdtTransferFactory"),c("cusdt-allocation-factory","CusdtAllocationFactory"),c("cusdt-burnmint-factory","CusdtBurnMintFactory")]}))
+ "contracts":[c("cusdt-admin","YapAdmin"),c("cusdt-transfer-factory","YapTransferFactory"),c("cusdt-allocation-factory","YapAllocationFactory"),c("cusdt-burnmint-factory","YapBurnMintFactory")]}))
 PY
 )
     api POST /contracts "$BODY" | cut -c1-600 ;;

@@ -1,7 +1,7 @@
 // Race between TWO NODES on the same allocation: the executor settles (our node, through the delegated authority) while the
 // remote sender withdraws (MZF node), started in the same tick / with a head start for either side.
 // Rule under test: never both succeed; exactly one outcome; conservation holds. Small on purpose (both validators have little traffic).
-//   node scripts/24-cross-node-race.mjs [rounds=3]      needs cusdt-token >= 0.4.1 on both nodes
+//   node scripts/24-cross-node-race.mjs [rounds=3]      needs yap-token >= 0.4.1 on both nodes
 import { loadEnv } from "./lib.mjs";
 import { T, snapshot, supply, checkInvariants } from "./invariants.mjs";
 import { makeOps, amt, IF } from "./ops.mjs";
@@ -12,13 +12,13 @@ const OURS = loadEnv(".env.testnet"), MZF = loadEnv(".env.mzf");
 if (OURS.INSECURE_TLS === "1" || MZF.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, CAROL = MZF.CUSDT_MZF_CAROL;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
-const PKG = "#cusdt-token", PROPOSAL = `${PKG}:CusdtToken:CusdtSettlementProposal`, AUTH = `${PKG}:CusdtToken:CusdtSettlementAuthority`;
+const PKG = "#yap-token", PROPOSAL = `${PKG}:YapToken:YapSettlementProposal`, AUTH = `${PKG}:YapToken:YapSettlementAuthority`;
 const ours = node(OURS, "ours"), mzf = node(MZF, "mzf");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 const extra = { extraArgs: { context: { values: {} }, meta: { values: {} } } };
 const sumH = (hs) => hs.reduce((s, h) => s + Math.round(Number(h.createArgument.amount) * 1e6), 0);
-const mine = async (nd, p) => (await nd.acs(p, `${PKG}:CusdtToken:CusdtHolding`)).filter((c) => c.createArgument.owner === p && c.createArgument.lock == null);
+const mine = async (nd, p) => (await nd.acs(p, `${PKG}:YapToken:YapHolding`)).filter((c) => c.createArgument.owner === p && c.createArgument.lock == null);
 const regPost = (path, body) => fetch(`${REGISTRY}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
 
 // ---- traffic guard: both validators are short on traffic; the 200k reserved floor must not be approached -------------
@@ -39,12 +39,12 @@ const c0 = sumH(await mine(mzf, CAROL)), a0 = sumH(await mine(ours, ALICE));
 { const o = makeOps({ token: await ours.token(), admin, registry: REGISTRY });
   const h = (await mine(ours, ALICE)).sort((a, b) => Number(b.createArgument.amount) - Number(a.createArgument.amount))[0];
   await o.transfer(ALICE, CAROL, amt(ROUNDS), [h])();
-  const inst = (await waitFor(async () => (await mzf.acs(CAROL, `${PKG}:CusdtToken:CusdtTransferInstruction`)).find((i) => i.createArgument.transfer.sender === ALICE))).v;
+  const inst = (await waitFor(async () => (await mzf.acs(CAROL, `${PKG}:YapToken:YapTransferInstruction`)).find((i) => i.createArgument.transfer.sender === ALICE))).v;
   await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.TI, contractId: inst.contractId, choice: "TransferInstruction_Accept", choiceArgument: extra } }]);
   ok("setup: carol funded", (await waitFor(async () => sumH(await mine(mzf, CAROL)) === c0 + ROUNDS)).v !== null); }
 await mzf.tx([CAROL], [{ CreateCommand: { templateId: PROPOSAL, createArguments: { executor: admin, sender: CAROL, receiver: ALICE, settlementRefId: REF, expiresAt: iso(3_600_000) } } }]);
 const prop = (await waitFor(async () => (await ours.acs(ALICE, PROPOSAL)).find((p) => p.createArgument.settlementRefId === REF))).v;
-await ours.tx([ALICE], [{ ExerciseCommand: { templateId: PROPOSAL, contractId: prop.contractId, choice: "CusdtSettlementProposal_Accept", choiceArgument: {} } }]);
+await ours.tx([ALICE], [{ ExerciseCommand: { templateId: PROPOSAL, contractId: prop.contractId, choice: "YapSettlementProposal_Accept", choiceArgument: {} } }]);
 const authority = (await waitFor(async () => (await ours.acs(admin, AUTH)).find((a) => a.createArgument.settlementRefId === REF))).v;
 ok("setup: delegation in place", !!authority);
 
@@ -57,7 +57,7 @@ async function carolAllocates() {
   await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.AF, contractId: f.factoryId, choice: "AllocationFactory_Allocate", choiceArgument: { ...args, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
   return (await waitFor(async () => (await ours.acs(admin, T.ALLOC)).find((a) => a.createArgument.allocation.settlement.settlementRef.id === REF && a.createArgument.allocation.transferLegId === spec.transferLegId))).v;
 }
-const execP = (alloc) => () => ours.tx([admin], [{ ExerciseCommand: { templateId: AUTH, contractId: authority.contractId, choice: "CusdtSettlement_Execute", choiceArgument: { allocationCid: alloc.contractId, ...extra } } }]);
+const execP = (alloc) => () => ours.tx([admin], [{ ExerciseCommand: { templateId: AUTH, contractId: authority.contractId, choice: "YapSettlement_Execute", choiceArgument: { allocationCid: alloc.contractId, ...extra } } }]);
 const withdrawP = (alloc) => () => mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.A, contractId: alloc.contractId, choice: "Allocation_Withdraw", choiceArgument: extra } }]);
 
 // ---- the races ----------------------------------------------------------------------------------------------------
@@ -83,7 +83,7 @@ for (let r = 0; r < ROUNDS; r++) {
 console.log(`outcomes: execute won ${executed}, withdraw won ${withdrawn}, both rejected ${neither}`);
 
 // ---- cleanup -------------------------------------------------------------------------------------------------------
-await ours.tx([ALICE], [{ ExerciseCommand: { templateId: AUTH, contractId: authority.contractId, choice: "CusdtSettlement_RevokeByReceiver", choiceArgument: {} } }]).catch((e) => console.log("revoke failed: " + short(e).slice(-120)));
+await ours.tx([ALICE], [{ ExerciseCommand: { templateId: AUTH, contractId: authority.contractId, choice: "YapSettlement_RevokeByReceiver", choiceArgument: {} } }]).catch((e) => console.log("revoke failed: " + short(e).slice(-120)));
 { const hs = await mine(mzf, CAROL); const total = sumH(hs);
   if (total > 0) {
     const t = { sender: CAROL, receiver: ALICE, amount: amt(total), instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: hs.map((h) => h.contractId), meta: { values: {} } };

@@ -1,4 +1,4 @@
-// Read-only: what does the Lighthouse TESTNET explorer know about cUSDT, and what can it tell us that the ledger can't?
+// Read-only: what does the Lighthouse TESTNET explorer know about YAP, and what can it tell us that the ledger can't?
 //   node scripts/23-lighthouse-explore.mjs
 // Reads are public; the key (LIGHTHOUSE_API_KEY in .env.testnet) is only sent as `Authorization: Bearer` for attribution and is never printed.
 import { env, need } from "./lib.mjs";
@@ -37,20 +37,20 @@ console.log(`Lighthouse testnet, API key supplied: ${KEY ? "yes (not shown)" : "
 await section("network config", "/network-config", (j) => console.log("   ", clip(j, 500)));
 await section("chain stats", "/stats", (j) => console.log("   ", clip(j, 500)));
 
-const tokens = await section("token list (is cUSDT a known token?)", "/tokens/list", (j) => {
+const tokens = await section("token list (is YAP a known token?)", "/tokens/list", (j) => {
   const list = arr(j); console.log(`    ${list.length} tokens; keys of one: ${Object.keys(list[0] ?? {}).join(", ")}`);
   console.log("    names:", list.map((t) => t.name ?? t.symbol ?? t.id).slice(0, 25).join(", "));
-  const hit = list.filter((t) => /cusdt|usdt/i.test(JSON.stringify(t))); console.log("    cUSDT/USDT-like entries:", hit.length ? clip(hit) : "none");
+  const hit = list.filter((t) => /cusdt|usdt/i.test(JSON.stringify(t))); console.log("    YAP/USDT-like entries:", hit.length ? clip(hit) : "none");
 });
 await section("search 'cusdt'", "/search?q=cusdt", (j) => console.log("   ", clip(j, 700)));
 await section("search the admin party", `/search?q=${enc(admin)}`, (j) => console.log("   ", clip(j, 500)));
-await section("token overview 'YAP'", "/tokens/cUSDT/overview", (j) => console.log("   ", clip(j, 500)));
+await section("token overview 'YAP'", "/tokens/YAP/overview", (j) => console.log("   ", clip(j, 500)));
 
 for (const [label, p] of [["cusdt-admin", admin], ["cusdt-alice", ALICE], ["cusdt-mzf-carol (other node)", CAROL]]) {
   await section(`party ${label}`, `/parties/${enc(p)}`, (j) => console.log("   ", clip(Object.fromEntries(Object.entries(j).filter(([k]) => /id|address|hosted|multi|name|type|created|first|last|balance/i.test(k))), 450)));
   await section(`CIP-56 activity of ${label}`, `/parties/${enc(p)}/cip56-activity?limit=5`, (j) => { const a = arr(j); console.log(`    ${a.length} item(s); first: ${clip(a[0] ?? j, 420)}`); });
 }
-await section("token movements for instrument cUSDT (admin filter)", `/token-movements?admin=${enc(admin)}&instrument_id=cUSDT&limit=5`, (j) => { const a = arr(j); console.log(`    ${a.length} movement(s); first: ${clip(a[0] ?? j, 420)}`); });
+await section("token movements for instrument YAP (admin filter)", `/token-movements?admin=${enc(admin)}&instrument_id=YAP&limit=5`, (j) => { const a = arr(j); console.log(`    ${a.length} movement(s); first: ${clip(a[0] ?? j, 420)}`); });
 await section("token movements of alice", `/token-movements?party=${enc(ALICE)}&limit=5`, (j) => { const a = arr(j); console.log(`    ${a.length} movement(s); first: ${clip(a[0] ?? j, 420)}`); });
 
 // one of OUR transactions in detail: how is it shown, what did it cost?

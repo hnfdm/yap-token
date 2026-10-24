@@ -1,5 +1,5 @@
 // Read-only: does the official Wallet SDK understand our registry and contracts?
-//   1. discover cUSDT from the registry (metadata-v1)     2. list holdings via the Holding interface view
+//   1. discover YAP from the registry (metadata-v1)     2. list holdings via the Holding interface view
 //   3. list pending transfer instructions via the TransferInstruction interface view
 import { SDK } from "@canton-network/wallet-sdk";
 import { getToken, env, need } from "../scripts/lib.mjs";
@@ -19,7 +19,7 @@ console.log("registry:", REGISTRY);
 const assets = await sdk.token.assets();
 console.log("assets:", JSON.stringify(assets, null, 1));
 const a = assets.find((x) => x.id === "YAP");
-console.log(a && a.admin === admin ? "PASS  cUSDT discovered with the right admin" : "FAIL  cUSDT not discovered / admin mismatch");
+console.log(a && a.admin === admin ? "PASS  YAP discovered with the right admin" : "FAIL  YAP not discovered / admin mismatch");
 
 for (const [name, p] of [["alice", ALICE], ["bob", BOB]]) {
   const h = await sdk.token.utxos.list({ partyId: p, includeLocked: true });

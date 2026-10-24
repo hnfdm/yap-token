@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the cUSDT DAR (v@@VERSION@@) and runs the Daml Script unit tests on a FRESH VPS (no repo checkout needed): installs JDK + dpm if missing,
+# Builds the YAP DAR (v@@VERSION@@) and runs the Daml Script unit tests on a FRESH VPS (no repo checkout needed): installs JDK + dpm if missing,
 # writes the sources, downloads the vendored Splice API DARs and verifies their sha256, builds, tests. No network traffic on any ledger.
 #   Save as a file, then:  bash build-test-fresh-vps.sh
 set -euo pipefail
@@ -9,19 +9,19 @@ command -v dpm >/dev/null || curl -fsSL https://get.digitalasset.com/install/ins
 export PATH="$HOME/.dpm/bin:$PATH"
 (cd / && dpm install @@SDK@@) >/dev/null
 
-W=$HOME/cusdt-build; C=$W/cusdt-token; T=$W/cusdt-token-test
+W=$HOME/cusdt-build; C=$W/yap-token; T=$W/yap-token-test
 mkdir -p $C/daml $C/dars $T/daml
 cat > $C/daml.yaml <<'EOF_YAML'
-@@EMBED daml/cusdt-token/daml.yaml@@
+@@EMBED daml/yap-token/daml.yaml@@
 EOF_YAML
-cat > $C/daml/CusdtToken.daml <<'EOF_DAML'
-@@EMBED daml/cusdt-token/daml/CusdtToken.daml@@
+cat > $C/daml/YapToken.daml <<'EOF_DAML'
+@@EMBED daml/yap-token/daml/YapToken.daml@@
 EOF_DAML
 cat > $T/daml.yaml <<'EOF_TYAML'
-@@EMBED daml/cusdt-token-test/daml.yaml@@
+@@EMBED daml/yap-token-test/daml.yaml@@
 EOF_TYAML
-cat > $T/daml/CusdtTokenTest.daml <<'EOF_TDAML'
-@@EMBED daml/cusdt-token-test/daml/CusdtTokenTest.daml@@
+cat > $T/daml/YapTokenTest.daml <<'EOF_TDAML'
+@@EMBED daml/yap-token-test/daml/YapTokenTest.daml@@
 EOF_TDAML
 
 echo "== vendored Splice API DARs (sha256 verified) =="
@@ -40,8 +40,8 @@ f044b34d7a28c2b6c8a540af720297d55450a889b451dc4eed64a9914f1d6b00 splice-api-toke
 720e766456b33abdd26bfc21e54d19413559f0a7ee52000e12d3b6c308199faa splice-api-token-transfer-instruction-v2-1.0.0.dar
 EOF_SUMS
 
-echo "== build cusdt-token =="
+echo "== build yap-token =="
 cd $C && dpm install package && dpm build
-DAR=$C/.daml/dist/cusdt-token-@@VERSION@@.dar; ls -la $DAR; sha256sum $DAR
+DAR=$C/.daml/dist/yap-token-@@VERSION@@.dar; ls -la $DAR; sha256sum $DAR
 echo "== build + run tests =="
 cd $T && dpm install package && dpm build && dpm test 2>&1 | grep -E "^daml/|rror|failed|Failed" | sed -E 's/, [0-9]+ active contracts, [0-9]+ transactions//'

@@ -1,11 +1,11 @@
-// One-time setup on a SECOND participant (the MZF testnet validator): create a receiver party, make sure the cUSDT
+// One-time setup on a SECOND participant (the MZF testnet validator): create a receiver party, make sure the YAP
 // package is uploaded/vetted there.   CUSDT_ENV_FILE=.env.mzf node scripts/20-mzf-setup.mjs
 // Idempotent. Small on purpose: that validator has only ~210k traffic units.
 import { readFileSync, appendFileSync } from "node:fs";
 import { getToken, ledger, acs, need, env, PKG } from "./lib.mjs";
 
 const HINT = process.env.CUSDT_SETUP_HINT ?? "cusdt-mzf-carol", KEY = process.env.CUSDT_SETUP_KEY ?? "CUSDT_MZF_CAROL";
-const DAR = process.env.DAR ?? "daml/cusdt-token/.daml/dist/cusdt-token-0.4.1.dar";
+const DAR = process.env.DAR ?? "daml/yap-token/.daml/dist/yap-token-0.4.1.dar";
 const token = await getToken();
 console.log("participant:", (await ledger(token, "/v2/version")).version);
 
@@ -21,10 +21,10 @@ await ledger(token, `/v2/users/${encodeURIComponent(userId)}/rights`, { method: 
   rights: [{ kind: { CanActAs: { value: { party } } } }, { kind: { CanReadAs: { value: { party } } } }] } });
 console.log("rights granted; receiver party:", party);
 
-// 2. is the cUSDT package resolvable on THIS participant? (reading with a package-name filter fails with PACKAGE_NAMES_NOT_FOUND if not)
-const readable = async () => { try { return (await acs(token, party, `${PKG}:CusdtToken:CusdtHolding`)).length; } catch (e) { if (/PACKAGE_NAMES_NOT_FOUND/.test(String(e.message))) return null; throw e; } };
+// 2. is the YAP package resolvable on THIS participant? (reading with a package-name filter fails with PACKAGE_NAMES_NOT_FOUND if not)
+const readable = async () => { try { return (await acs(token, party, `${PKG}:YapToken:YapHolding`)).length; } catch (e) { if (/PACKAGE_NAMES_NOT_FOUND/.test(String(e.message))) return null; throw e; } };
 if ((await readable()) === null) {
-  console.log("cusdt-token is NOT on this participant yet: uploading", DAR);
+  console.log("yap-token is NOT on this participant yet: uploading", DAR);
   await ledger(token, "/v2/packages", { method: "POST", raw: readFileSync(DAR), ct: "application/octet-stream" });
 }
 const n = await readable();

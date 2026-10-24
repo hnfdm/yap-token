@@ -1,6 +1,6 @@
 # Vendored Splice token-standard API DARs (v1.0.0)
 
-Build-time dependencies of `cusdt-token`. They are the unmodified Apache-2.0 artifacts from
+Build-time dependencies of `yap-token`. They are the unmodified Apache-2.0 artifacts from
 <https://github.com/hyperledger-labs/splice/tree/main/daml/dars> (copied 2026-10-09/10).
 Verify with `sha256sum`:
 

@@ -1,22 +1,22 @@
--- Daml Script tests for the governed actions (daml/cusdt-governance).
+-- Daml Script tests for the governed actions (daml/yap-governance).
 -- The governance machinery itself (GovernanceRules: threshold, confirmations, expiry) belongs to DecMan and is tested there; here
 -- `gov` plays "the governance party after enough confirmations": it exercises GovernableAction_Execute on a proposal that a member created.
-module CusdtGovernanceTest where
+module YapGovernanceTest where
 
 import Daml.Script
 import DA.Time
 import DA.Date
-import CusdtToken
-import CusdtGovernance
+import YapToken
+import YapGovernance
 import Governance.Action
 
 data W = W with
-  gov    : Party   -- the decentralized governor (cUSDT admin)
+  gov    : Party   -- the decentralized governor (YAP admin)
   member : Party   -- a member that proposes
   op     : Party   -- an operator
   alice  : Party
   other  : Party   -- some unrelated issuer
-  adm    : ContractId CusdtAdmin
+  adm    : ContractId YapAdmin
 
 setup : Script W
 setup = do
@@ -26,7 +26,7 @@ setup = do
   alice <- allocateParty "alice"
   other <- allocateParty "other"
   setTime (time (date 2026 Oct 22) 9 0 0)
-  adm <- submit gov do createCmd CusdtAdmin with admin = gov
+  adm <- submit gov do createCmd YapAdmin with admin = gov
   pure W with ..
 
 -- the governance step: members confirmed, GovernanceRules executes (here: the governance party exercises Execute)
@@ -38,9 +38,9 @@ executeFails : (Template t, Implements t GovernableAction) => Party -> ContractI
 executeFails who pid = submitMustFail who do
   exerciseCmd (toInterfaceContractId @GovernableAction pid) GovernableAction_Execute
 
-allowanceOf : W -> Script [(ContractId CusdtOperatorAuthority, CusdtOperatorAuthority)]
+allowanceOf : W -> Script [(ContractId YapOperatorAuthority, YapOperatorAuthority)]
 allowanceOf w = do
-  as <- query @CusdtOperatorAuthority w.gov
+  as <- query @YapOperatorAuthority w.gov
   pure [ (c, a) | (c, a) <- as, a.operator == w.op ]
 
 testAppointOperator : Script ()
@@ -65,8 +65,8 @@ testAppointGuards = do
         createCmd AppointOperatorProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, operator = op, allowance = al, validUntil = addRelTime now (days 1)
   go w.gov 10.0                                 -- operator = governance party
   go w.op (-1.0)                                -- negative allowance
-  -- a CusdtAdmin of ANOTHER issuer cannot be used through this governance party
-  otherAdm <- submit w.other do createCmd CusdtAdmin with admin = w.other
+  -- a YapAdmin of ANOTHER issuer cannot be used through this governance party
+  otherAdm <- submit w.other do createCmd YapAdmin with admin = w.other
   p <- submit w.member do
     createCmd AppointOperatorProposal with governanceParty = w.gov, proposer = w.member, adminCid = otherAdm, operator = w.op, allowance = 1.0, validUntil = addRelTime now (days 1)
   executeFails w.gov p
@@ -79,7 +79,7 @@ testSetAllowanceAndStaleCid = do
   now <- getTime
   auth <- appoint w 100.0
   -- the operator mints: the authority contract is consumed and recreated, the old id is stale
-  _ <- submit w.op do exerciseCmd auth CusdtOperator_Mint with recipient = w.alice, amount = 10.0
+  _ <- submit w.op do exerciseCmd auth YapOperator_Mint with recipient = w.alice, amount = 10.0
   stale <- submit w.member do
     createCmd SetOperatorAllowanceProposal with governanceParty = w.gov, proposer = w.member, authorityCid = auth, newAllowance = 500.0, newValidUntil = addRelTime now (days 60)
   executeFails w.gov stale
@@ -101,7 +101,7 @@ testRevokeOperator = do
   executeFails w.op p
   execute w.gov p
   [] <- allowanceOf w
-  submitMustFail w.op do exerciseCmd auth CusdtOperator_Mint with recipient = w.alice, amount = 1.0
+  submitMustFail w.op do exerciseCmd auth YapOperator_Mint with recipient = w.alice, amount = 1.0
   pure ()
 
 testRevokeVesting : Script ()
@@ -109,14 +109,14 @@ testRevokeVesting = do
   w <- setup
   now <- getTime
   v <- submit w.gov do
-    exerciseCmd w.adm CusdtAdmin_GrantVesting with beneficiary = w.alice, amount = 100.0, start = now, cliff = now, finish = addRelTime now (days 10), revocable = True
+    exerciseCmd w.adm YapAdmin_GrantVesting with beneficiary = w.alice, amount = 100.0, start = now, cliff = now, finish = addRelTime now (days 10), revocable = True
   passTime (days 5)
   p <- submit w.member do createCmd RevokeVestingProposal with governanceParty = w.gov, proposer = w.member, vestingCid = v
   executeFails w.alice p
   execute w.gov p
-  vs <- query @CusdtVesting w.gov
+  vs <- query @YapVesting w.gov
   assertMsg "the vesting is gone" (null vs)
-  hs <- query @CusdtHolding w.gov
+  hs <- query @YapHolding w.gov
   let aliceGot = sum [ h.amount | (_, h) <- hs, h.owner == w.alice, h.lock == None ]
   let govGot = sum [ h.amount | (_, h) <- hs, h.owner == w.gov ]
   assertMsg ("half vested to alice, half back to the governor, got " <> show aliceGot <> " / " <> show govGot) (aliceGot == 50.0 && govGot == 50.0)
@@ -127,20 +127,20 @@ testGovernorMint = do
   p <- submit w.member do createCmd GovernorMintProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, recipient = w.alice, amount = 7.0
   executeFails w.member p
   execute w.gov p
-  hs <- query @CusdtHolding w.gov
+  hs <- query @YapHolding w.gov
   assertMsg "alice has 7" (sum [ h.amount | (_, h) <- hs, h.owner == w.alice ] == 7.0)
   submitMustFail w.member do createCmd GovernorMintProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, recipient = w.alice, amount = 0.0
 
 testRescueHolding : Script ()
 testRescueHolding = do
   w <- setup
-  h <- submit w.gov do createCmd CusdtHolding with admin = w.gov, owner = w.alice, amount = 5.0, lock = None
-  hOther <- submit w.other do createCmd CusdtHolding with admin = w.other, owner = w.alice, amount = 5.0, lock = None
+  h <- submit w.gov do createCmd YapHolding with admin = w.gov, owner = w.alice, amount = 5.0, lock = None
+  hOther <- submit w.other do createCmd YapHolding with admin = w.other, owner = w.alice, amount = 5.0, lock = None
   submitMustFail w.member do createCmd RescueHoldingProposal with governanceParty = w.gov, proposer = w.member, holdingCid = h, reason = ""
   p <- submit w.member do createCmd RescueHoldingProposal with governanceParty = w.gov, proposer = w.member, holdingCid = h, reason = "reported stolen"
   executeFails w.alice p
   execute w.gov p
-  hs <- query @CusdtHolding w.gov
+  hs <- query @YapHolding w.gov
   assertMsg "the rescued holding is gone" (null hs)
   -- a holding of another issuer cannot be rescued through this governance party
   pOther <- submit w.member do createCmd RescueHoldingProposal with governanceParty = w.gov, proposer = w.member, holdingCid = hOther, reason = "wrong issuer"
@@ -155,17 +155,17 @@ testProposalViews = do
     createCmd AppointOperatorProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, operator = w.op, allowance = 100.0, validUntil = addRelTime now (days 30)
   Some c <- queryContractId w.gov p
   let v = view (toInterface @GovernableAction c)
-  assertMsg "label" (v.actionLabel == "CusdtAppointOperator")
+  assertMsg "label" (v.actionLabel == "YapAppointOperator")
   assertMsg "governance party" (v.governanceParty == w.gov)
   assertMsg "proposer" (v.proposer == w.member)
 
 testBurnTreasury : Script ()
 testBurnTreasury = do
   w <- setup
-  f <- submit w.gov do createCmd CusdtBurnMintFactory with admin = w.gov
-  t1 <- submit w.gov do createCmd CusdtHolding with admin = w.gov, owner = w.gov, amount = 4.0, lock = None
-  t2 <- submit w.gov do createCmd CusdtHolding with admin = w.gov, owner = w.gov, amount = 6.0, lock = None
-  a1 <- submit w.gov do createCmd CusdtHolding with admin = w.gov, owner = w.alice, amount = 5.0, lock = None
+  f <- submit w.gov do createCmd YapBurnMintFactory with admin = w.gov
+  t1 <- submit w.gov do createCmd YapHolding with admin = w.gov, owner = w.gov, amount = 4.0, lock = None
+  t2 <- submit w.gov do createCmd YapHolding with admin = w.gov, owner = w.gov, amount = 6.0, lock = None
+  a1 <- submit w.gov do createCmd YapHolding with admin = w.gov, owner = w.alice, amount = 5.0, lock = None
   let propose cids = submit w.member do
         createCmd BurnTreasuryProposal with governanceParty = w.gov, proposer = w.member, factoryCid = f, holdingCids = cids
   submitMustFail w.member do createCmd BurnTreasuryProposal with governanceParty = w.gov, proposer = w.member, factoryCid = f, holdingCids = []
@@ -176,19 +176,19 @@ testBurnTreasury = do
   p <- propose [t1, t2]
   executeFails w.member p
   execute w.gov p
-  hs <- query @CusdtHolding w.gov
+  hs <- query @YapHolding w.gov
   assertMsg "only alice's 5 is left" (sum [ h.amount | (_, h) <- hs ] == 5.0 && length hs == 1)
 
 testFixedSupplyTreasury : Script ()
 testFixedSupplyTreasury = do
   w <- setup
   now <- getTime
-  tf <- submit w.gov do createCmd CusdtTransferFactory with admin = w.gov
+  tf <- submit w.gov do createCmd YapTransferFactory with admin = w.gov
   -- one-time issuance of the whole supply to the governor itself
-  treasury <- submit w.gov do createCmd CusdtHolding with admin = w.gov, owner = w.gov, amount = 1000.0, lock = None
+  treasury <- submit w.gov do createCmd YapHolding with admin = w.gov, owner = w.gov, amount = 1000.0, lock = None
   let supply = do
-        hs <- query @CusdtHolding w.gov
-        vs <- query @CusdtTransferInstruction w.gov
+        hs <- query @YapHolding w.gov
+        vs <- query @YapTransferInstruction w.gov
         pure (sum [ h.amount | (_, h) <- hs ] + sum [ i.transfer.amount | (_, i) <- vs ])
   -- a vesting grant funded from the treasury: the supply does not change
   pv <- submit w.member do
@@ -197,7 +197,7 @@ testFixedSupplyTreasury = do
   execute w.gov pv
   s1 <- supply
   assertMsg ("supply still 1000, got " <> show s1) (s1 == 1000.0)
-  locked <- query @CusdtHolding w.gov
+  locked <- query @YapHolding w.gov
   assertMsg "alice has 300 locked" (sum [ h.amount | (_, h) <- locked, h.owner == w.alice, h.lock /= None ] == 300.0)
   assertMsg "the treasury kept 700 as change" (sum [ h.amount | (_, h) <- locked, h.owner == w.gov ] == 700.0)
   -- more than the treasury holds is refused
@@ -212,15 +212,15 @@ testFixedSupplyTreasury = do
   execute w.gov pt
   s2 <- supply
   assertMsg ("supply still 1000 after the transfer offer, got " <> show s2) (s2 == 1000.0)
-  is <- query @CusdtTransferInstruction w.gov
+  is <- query @YapTransferInstruction w.gov
   assertMsg "one pending offer of 200 to bob" (length [ () | (_, i) <- is, i.transfer.receiver == w.bob, i.transfer.amount == 200.0 ] == 1)
   -- the governor cannot send to itself through this proposal, nor 0
   submitMustFail w.member do createCmd TreasuryTransferProposal with governanceParty = w.gov, proposer = w.member, factoryCid = tf, receiver = w.gov, amount = 1.0, treasuryCids = [rest], executeBefore = addRelTime now (days 1)
   submitMustFail w.member do createCmd TreasuryTransferProposal with governanceParty = w.gov, proposer = w.member, factoryCid = tf, receiver = w.bob, amount = 0.0, treasuryCids = [rest], executeBefore = addRelTime now (days 1)
 
 -- helper: appoint through the governor-direct choice (the governed path is tested separately)
-appoint : W -> Decimal -> Script (ContractId CusdtOperatorAuthority)
+appoint : W -> Decimal -> Script (ContractId YapOperatorAuthority)
 appoint w al = do
   now <- getTime
   submit w.gov do
-    exerciseCmd w.adm CusdtAdmin_AppointOperator with operator = w.op, allowance = al, validUntil = addRelTime now (days 30)
+    exerciseCmd w.adm YapAdmin_AppointOperator with operator = w.op, allowance = al, validUntil = addRelTime now (days 30)

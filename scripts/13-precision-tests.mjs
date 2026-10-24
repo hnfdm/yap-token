@@ -7,9 +7,9 @@ const suffix = admin.split("::")[1];
 const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
 const registry = process.env.CUSDT_REGISTRY_URL || "http://localhost:8787";
 const token = await getToken();
-const HOLDING = `${PKG}:CusdtToken:CusdtHolding`;
-const ADMINT = `${PKG}:CusdtToken:CusdtAdmin`;
-const INSTR = `${PKG}:CusdtToken:CusdtTransferInstruction`;
+const HOLDING = `${PKG}:YapToken:YapHolding`;
+const ADMINT = `${PKG}:YapToken:YapAdmin`;
+const INSTR = `${PKG}:YapToken:YapTransferInstruction`;
 const IF_TF = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferFactory";
 const IF_TI = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferInstruction";
 const IF_AF = "#splice-api-token-allocation-instruction-v1:Splice.Api.Token.AllocationInstructionV1:AllocationFactory";
@@ -54,12 +54,12 @@ await mustFail("allocation with 7 decimals", "more than 6 decimals", () => alloc
 await mustFail("mint with 7 decimals", "more than 6 decimals", async () => {
   const [a] = await acs(token, admin, ADMINT);
   return submit(token, { actAs: [admin], label: "prec-mint", commands: [{ ExerciseCommand: { templateId: ADMINT, contractId: a.contractId,
-    choice: "CusdtAdmin_Mint", choiceArgument: { recipient: ALICE, amount: "0.0000001000" } } }] });
+    choice: "YapAdmin_Mint", choiceArgument: { recipient: ALICE, amount: "0.0000001000" } } }] });
 });
 await mustFail("split with 7 decimals", "more than 6 decimals", async () => {
   const [h] = await held(ALICE);
   return submit(token, { actAs: [ALICE], label: "prec-split", commands: [{ ExerciseCommand: { templateId: HOLDING, contractId: h.contractId,
-    choice: "CusdtHolding_Split", choiceArgument: { splitAmount: "0.0000001000" } } }] });
+    choice: "YapHolding_Split", choiceArgument: { splitAmount: "0.0000001000" } } }] });
 });
 ok("failed attempts changed nothing", total(await held(ALICE)) === A0 && total(await held(BOB)) === B0);
 

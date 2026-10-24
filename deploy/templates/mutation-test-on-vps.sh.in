@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Mutation test of the cUSDT contract on the testnet VPS: breaks one rule at a time, rebuilds, runs the Daml Script tests, reports which
+# Mutation test of the YAP contract on the testnet VPS: breaks one rule at a time, rebuilds, runs the Daml Script tests, reports which
 # rules no test protects. Works on a COPY in /tmp/cusdt-mut (the real sources and DARs are not touched). Takes ~15 minutes, no network traffic.
 # Needs the sources written by build-test-fresh-vps.sh (run that first).   Save as a file, then:  bash mutation-test-on-vps.sh
 set -euo pipefail
 export PATH="$HOME/.dpm/bin:$PATH"
 W=/tmp/cusdt-mut
-rm -rf $W; mkdir -p $W/cusdt-token $W/cusdt-token-test
-cp -r $HOME/cusdt-build/cusdt-token/daml.yaml $HOME/cusdt-build/cusdt-token/daml $HOME/cusdt-build/cusdt-token/dars $W/cusdt-token/
-cp -r $HOME/cusdt-build/cusdt-token-test/daml.yaml $HOME/cusdt-build/cusdt-token-test/daml $W/cusdt-token-test/
+rm -rf $W; mkdir -p $W/yap-token $W/yap-token-test
+cp -r $HOME/cusdt-build/yap-token/daml.yaml $HOME/cusdt-build/yap-token/daml $HOME/cusdt-build/yap-token/dars $W/yap-token/
+cp -r $HOME/cusdt-build/yap-token-test/daml.yaml $HOME/cusdt-build/yap-token-test/daml $W/yap-token-test/
 cat > $W/mutations.py <<'EOF_PY'
-@@EMBED daml/cusdt-token-test/mutations.py@@
+@@EMBED daml/yap-token-test/mutations.py@@
 EOF_PY
 python3 $W/mutations.py $W

@@ -1,5 +1,5 @@
-// Behavioural tests against the deployed cUSDT contracts + registry (testnet).
-// Needs cusdt-alice with a few cUSDT and cusdt-bob (see 3-mint / 4-e2e-test).
+// Behavioural tests against the deployed YAP contracts + registry (testnet).
+// Needs cusdt-alice with a few YAP and cusdt-bob (see 3-mint / 4-e2e-test).
 // Net balances are restored; every negative case must FAIL on-ledger, every positive case must pass.
 import { getToken, acs, submit, need, env, PKG } from "./lib.mjs";
 
@@ -8,8 +8,8 @@ const suffix = admin.split("::")[1];
 const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
 const registry = process.env.CUSDT_REGISTRY_URL || "http://localhost:8787";
 const token = await getToken();
-const HOLDING = `${PKG}:CusdtToken:CusdtHolding`;
-const INSTR = `${PKG}:CusdtToken:CusdtTransferInstruction`;
+const HOLDING = `${PKG}:YapToken:YapHolding`;
+const INSTR = `${PKG}:YapToken:YapTransferInstruction`;
 const IFACE_TF = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferFactory";
 const IFACE_TI = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferInstruction";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -62,7 +62,7 @@ async function mustFail(name, fn, wantMsg) {
 const a0 = await holdings(ALICE), b0 = await holdings(BOB);
 const A0 = total(a0), B0 = total(b0);
 console.log(`start: alice ${A0} (${a0.length} holdings), bob ${B0} (${b0.length} holdings)\n`);
-if (A0 < 5) throw new Error("alice needs >= 5 cUSDT");
+if (A0 < 5) throw new Error("alice needs >= 5 YAP");
 
 // ---- negative: transfer rules ----
 await mustFail("insufficient inputs", () => doTransfer(ALICE, mkTransfer(ALICE, BOB, A0 + 1, a0)), "insufficient funds");
@@ -71,7 +71,7 @@ await mustFail("executeBefore in the past", () => doTransfer(ALICE, mkTransfer(A
 await mustFail("requestedAt in the future", () => doTransfer(ALICE, mkTransfer(ALICE, BOB, 1, a0, { requestedAt: new Date(Date.now() + 3_600_000).toISOString() })), "requestedAt");
 await mustFail("wrong expectedAdmin", () => doTransfer(ALICE, mkTransfer(ALICE, BOB, 1, a0), { expectedAdmin: BOB }), "expectedAdmin");
 await mustFail("wrong instrument id", async () => {
-  const t = mkTransfer(ALICE, BOB, 1, a0, { instrumentId: { admin, id: "cUSDT2" } });
+  const t = mkTransfer(ALICE, BOB, 1, a0, { instrumentId: { admin, id: "YAP2" } });
   const f = await factoryFor(mkTransfer(ALICE, BOB, 1, a0));
   return submit(token, { actAs: [ALICE], label: "wi", disclosedContracts: f.choiceContext.disclosedContracts,
     commands: [{ ExerciseCommand: { templateId: IFACE_TF, contractId: f.factoryId, choice: "TransferFactory_Transfer",
@@ -113,7 +113,7 @@ ok("self transfer completes immediately, total unchanged", total(aS) === A0, `${
 if (aS.length >= 2) {
   const [first, ...rest] = aS;
   await submit(token, { actAs: [ALICE], label: "merge", commands: [{ ExerciseCommand: {
-    templateId: HOLDING, contractId: first.contractId, choice: "CusdtHolding_Merge",
+    templateId: HOLDING, contractId: first.contractId, choice: "YapHolding_Merge",
     choiceArgument: { otherCids: rest.map((h) => h.contractId) } } }] });
   const aM = await holdings(ALICE);
   ok("merge consolidates to one holding, total unchanged", aM.length === 1 && total(aM) === A0, `${aS.length} -> ${aM.length}`);
@@ -123,7 +123,7 @@ const bH = await holdings(BOB);
 if (bH.length >= 2) {
   const [, ...rest] = bH;
   await mustFail("cannot merge another owner's holdings", async () => submit(token, { actAs: [ALICE], label: "badmerge", commands: [{ ExerciseCommand: {
-    templateId: HOLDING, contractId: (await holdings(ALICE))[0].contractId, choice: "CusdtHolding_Merge",
+    templateId: HOLDING, contractId: (await holdings(ALICE))[0].contractId, choice: "YapHolding_Merge",
     choiceArgument: { otherCids: rest.map((h) => h.contractId) } } }] }), "owner mismatch");
 }
 

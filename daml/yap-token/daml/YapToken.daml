@@ -2,7 +2,7 @@
 --
 -- Implements Holding + TransferFactory + TransferInstruction. Token metadata is
 -- off-ledger (see /registry in this repo). Allocation / settlement is NOT implemented yet.
-module CusdtToken where
+module YapToken where
 
 import DA.Foldable (forA_)
 import DA.Time (subTime, convertRelTimeToMicroseconds)
@@ -18,11 +18,11 @@ import Splice.Api.Token.MetadataV1 qualified as M
 import Splice.Api.Token.TransferInstructionV1 qualified as TI
 import Splice.Api.Token.TransferInstructionV2 qualified as TI2
 
-cusdtSymbol : Text
-cusdtSymbol = "YAP"
+yapSymbol : Text
+yapSymbol = "YAP"
 
-cusdtInstrumentId : Party -> H.InstrumentId
-cusdtInstrumentId admin = H.InstrumentId with admin = admin, id = cusdtSymbol
+yapInstrumentId : Party -> H.InstrumentId
+yapInstrumentId admin = H.InstrumentId with admin = admin, id = yapSymbol
 
 -- Key under which the registry passes the receiver's preapproval cid in the choice context.
 preapprovalKey : Text
@@ -43,9 +43,9 @@ assertPrecision what x = assertMsg (what <> " has more than 6 decimals") (roundB
 
 -- Token Standard V2 helpers ---------------------------------------------------------------------------------
 -- V2 addresses holdings by Account (owner, provider, id). YAP only has plain owner accounts: no provider, default id.
--- Accounts with owner = None (the admin-managed mint/burn accounts) are not used: the issuer mints with CusdtAdmin_Mint / BurnMint.
-cusdtInstrumentIdV2 : Party -> H2.InstrumentId
-cusdtInstrumentIdV2 admin = H2.InstrumentId with admin = admin, id = cusdtSymbol
+-- Accounts with owner = None (the admin-managed mint/burn accounts) are not used: the issuer mints with YapAdmin_Mint / BurnMint.
+yapInstrumentIdV2 : Party -> H2.InstrumentId
+yapInstrumentIdV2 admin = H2.InstrumentId with admin = admin, id = yapSymbol
 
 v2Account : Party -> H2.Account
 v2Account p = H2.Account with owner = Some p, provider = None, id = ""
@@ -84,7 +84,7 @@ lockActive now (Some l) = case l.expiresAt of
   None -> True
   Some t -> now < t
 
--- Locks created by CusdtHolding_Lock carry this prefix in their context; only those can be released early by their holders
+-- Locks created by YapHolding_Lock carry this prefix in their context; only those can be released early by their holders
 -- (an allocation lock, whose holder is the executor, can not).
 voluntaryLockPrefix : Text
 voluntaryLockPrefix = "cusdt/voluntary-lock: "
@@ -114,7 +114,7 @@ spendInputs admin sender amount inputCidsI = do
   change <- spendInputsT admin sender amount (map fromInterfaceContractId inputCidsI)
   pure (map toInterfaceContractId change)
 
-spendInputsT : Party -> Party -> Decimal -> [ContractId CusdtHolding] -> Update [ContractId CusdtHolding]
+spendInputsT : Party -> Party -> Decimal -> [ContractId YapHolding] -> Update [ContractId YapHolding]
 spendInputsT admin sender amount inputCids = do
   now <- getTime
   inputs <- forA inputCids fetch
@@ -128,22 +128,22 @@ spendInputsT admin sender amount inputCids = do
   let change = total - amount
   if change > 0.0
     then do
-      c <- create CusdtHolding with admin, owner = sender, amount = change, lock = None
+      c <- create YapHolding with admin, owner = sender, amount = change, lock = None
       pure [c]
     else pure []
 
 -- Unlock: archive a locked holding and give the same amount back to its owner, unlocked.
-releaseLocked : ContractId CusdtHolding -> Update (ContractId H.Holding)
+releaseLocked : ContractId YapHolding -> Update (ContractId H.Holding)
 releaseLocked lockedCid = do
   locked <- fetch lockedCid
   archive lockedCid
-  h <- create CusdtHolding with
+  h <- create YapHolding with
     admin = locked.admin, owner = locked.owner, amount = locked.amount, lock = None
   pure (toInterfaceContractId h)
 
 -- Holding ------------------------------------------------------------------
 
-template CusdtHolding
+template YapHolding
   with
     admin  : Party
     owner  : Party
@@ -154,23 +154,23 @@ template CusdtHolding
     observer owner :: lockHolders lock
     ensure amount > 0.0
 
-    interface instance H.Holding for CusdtHolding where
+    interface instance H.Holding for YapHolding where
       view = H.HoldingView with
         owner = owner
-        instrumentId = cusdtInstrumentId admin
+        instrumentId = yapInstrumentId admin
         amount = amount
         lock = lock
         meta = M.emptyMetadata
 
-    interface instance H2.Holding for CusdtHolding where
+    interface instance H2.Holding for YapHolding where
       view = H2.HoldingView with
         account = v2Account owner
-        instrumentId = cusdtInstrumentIdV2 admin
+        instrumentId = yapInstrumentIdV2 admin
         amount = amount
         lock = fmap v2Lock lock
         meta = M.emptyMetadata
 
-    choice CusdtHolding_Split : (ContractId CusdtHolding, ContractId CusdtHolding)
+    choice YapHolding_Split : (ContractId YapHolding, ContractId YapHolding)
       with splitAmount : Decimal
       controller owner
       do
@@ -179,13 +179,13 @@ template CusdtHolding
         assertMsg "splitAmount must be positive" (splitAmount > 0.0)
         assertMsg "splitAmount must be less than amount" (splitAmount < amount)
         assertPrecision "splitAmount" splitAmount
-        a <- create CusdtHolding with admin, owner, amount = splitAmount, lock = None
-        b <- create CusdtHolding with admin, owner, amount = amount - splitAmount, lock = None
+        a <- create YapHolding with admin, owner, amount = splitAmount, lock = None
+        b <- create YapHolding with admin, owner, amount = amount - splitAmount, lock = None
         pure (a, b)
 
     -- Consolidate this holding with others (UTXO hygiene: keep holdings per user low).
-    choice CusdtHolding_Merge : ContractId CusdtHolding
-      with otherCids : [ContractId CusdtHolding]
+    choice YapHolding_Merge : ContractId YapHolding
+      with otherCids : [ContractId YapHolding]
       controller owner
       do
         now <- getTime
@@ -196,11 +196,11 @@ template CusdtHolding
           assertMsg "admin mismatch" (o.admin == admin)
           assertMsg "other holding is locked" (not (lockActive now o.lock))
         forA_ otherCids archive
-        create CusdtHolding with admin, owner, amount = amount + sum (map (\o -> o.amount) others), lock = None
+        create YapHolding with admin, owner, amount = amount + sum (map (\o -> o.amount) others), lock = None
 
     -- Owner destroys their own holding (e.g. the admin burning redeemed YAP).
     -- The admin cannot use THIS choice on other people's holdings (as the only signatory of a holding it can still use Daml's built-in Archive on it).
-    choice CusdtHolding_Burn : ()
+    choice YapHolding_Burn : ()
       controller owner
       do
         now <- getTime
@@ -209,7 +209,7 @@ template CusdtHolding
 
     -- Voluntary lock: the owner locks the holding until `expiresAt`. The `holders` (e.g. an escrow or vesting agent) can release it
     -- early, all of them together; with no holders it is a pure time lock that nobody can shorten.
-    choice CusdtHolding_Lock : ContractId CusdtHolding
+    choice YapHolding_Lock : ContractId YapHolding
       with
         holders   : [Party]
         expiresAt : Time
@@ -220,7 +220,7 @@ template CusdtHolding
         assertMsg "holding is already locked" (not (lockActive now lock))
         assertMsg "expiresAt must be in the future" (expiresAt > now)
         assertMsg "the owner cannot be a lock holder (it could just unlock again)" (not (owner `elem` holders))
-        create CusdtHolding with
+        create YapHolding with
           admin, owner, amount
           lock = Some (H.Lock with
             holders = holders
@@ -229,46 +229,46 @@ template CusdtHolding
             context = Some (voluntaryLockPrefix <> context))
 
     -- Early release of a VOLUNTARY lock by all its holders. An allocation lock can not be released this way.
-    choice CusdtHolding_UnlockEarly : ContractId CusdtHolding
+    choice YapHolding_UnlockEarly : ContractId YapHolding
       controller lockHolders lock
       do
         assertMsg "only voluntary locks can be released early" (isVoluntaryLock lock)
-        create CusdtHolding with admin, owner, amount, lock = None
+        create YapHolding with admin, owner, amount, lock = None
 
     -- Tidy-up after expiry: the holding is spendable anyway once its lock has expired; this just drops the stale lock record.
-    choice CusdtHolding_UnlockExpired : ContractId CusdtHolding
+    choice YapHolding_UnlockExpired : ContractId YapHolding
       controller owner
       do
         now <- getTime
         assertMsg "the holding has no expired lock" (lock /= None && not (lockActive now lock))
-        create CusdtHolding with admin, owner, amount, lock = None
+        create YapHolding with admin, owner, amount, lock = None
 
 -- Issuer -------------------------------------------------------------------
 
-template CusdtAdmin
+template YapAdmin
   with
     admin : Party
   where
     signatory admin
 
-    nonconsuming choice CusdtAdmin_Mint : ContractId CusdtHolding
+    nonconsuming choice YapAdmin_Mint : ContractId YapHolding
       with
         recipient : Party
         amount    : Decimal
       controller admin
       do
         assertPrecision "mint amount" amount
-        create CusdtHolding with admin, owner = recipient, amount, lock = None
+        create YapHolding with admin, owner = recipient, amount, lock = None
 
     -- Lets `receiver` accept transfers directly (no per-transfer accept step).
-    nonconsuming choice CusdtAdmin_CreatePreapproval : ContractId CusdtTransferPreapproval
+    nonconsuming choice YapAdmin_CreatePreapproval : ContractId YapTransferPreapproval
       with receiver : Party
       controller admin
       do
-        create CusdtTransferPreapproval with admin, receiver
+        create YapTransferPreapproval with admin, receiver
 
-    -- Issues new tokens that vest linearly for `beneficiary` (see CusdtVesting).
-    nonconsuming choice CusdtAdmin_GrantVesting : ContractId CusdtVesting
+    -- Issues new tokens that vest linearly for `beneficiary` (see YapVesting).
+    nonconsuming choice YapAdmin_GrantVesting : ContractId YapVesting
       with
         beneficiary : Party
         amount      : Decimal
@@ -281,7 +281,7 @@ template CusdtAdmin
 
     -- Fixed-supply variant of GrantVesting: the tokens come out of the admin's own (treasury) holdings instead of being minted, so the total
     -- supply does not change. `treasuryCids` are unlocked holdings owned by the admin; what they hold beyond `amount` goes back to the admin.
-    nonconsuming choice CusdtAdmin_GrantVestingFromTreasury : ContractId CusdtVesting
+    nonconsuming choice YapAdmin_GrantVestingFromTreasury : ContractId YapVesting
       with
         beneficiary  : Party
         amount       : Decimal
@@ -289,15 +289,15 @@ template CusdtAdmin
         cliff        : Time
         finish       : Time
         revocable    : Bool
-        treasuryCids : [ContractId CusdtHolding]
+        treasuryCids : [ContractId YapHolding]
       controller admin
       do
         _ <- spendInputsT admin admin amount treasuryCids
         grantVesting admin beneficiary amount start cliff finish revocable
 
-    -- Governance: hands a day-to-day operator a limited, expiring allowance (see CusdtOperatorAuthority).
+    -- Governance: hands a day-to-day operator a limited, expiring allowance (see YapOperatorAuthority).
     -- The admin (governor) keeps every power above; the operator only gets what is written in the delegation.
-    nonconsuming choice CusdtAdmin_AppointOperator : ContractId CusdtOperatorAuthority
+    nonconsuming choice YapAdmin_AppointOperator : ContractId YapOperatorAuthority
       with
         operator   : Party
         allowance  : Decimal
@@ -307,23 +307,23 @@ template CusdtAdmin
         assertMsg "operator must differ from the admin" (operator /= admin)
         assertMsg "allowance must not be negative" (allowance >= 0.0)
         assertPrecision "allowance" allowance
-        create CusdtOperatorAuthority with admin, operator, allowance, validUntil
+        create YapOperatorAuthority with admin, operator, allowance, validUntil
 
-grantVesting : Party -> Party -> Decimal -> Time -> Time -> Time -> Bool -> Update (ContractId CusdtVesting)
+grantVesting : Party -> Party -> Decimal -> Time -> Time -> Time -> Bool -> Update (ContractId YapVesting)
 grantVesting admin beneficiary amount start cliff finish revocable = do
   now <- getTime
   assertMsg "vesting amount must be positive" (amount > 0.0)
   assertPrecision "vesting amount" amount
   assertMsg "finish must be in the future" (finish > now)
-  lockedCid <- create CusdtHolding with admin, owner = beneficiary, amount, lock = Some (vestingLock admin finish)
-  create CusdtVesting with admin, beneficiary, total = amount, claimed = 0.0, start, cliff, finish, revocable, lockedCid
+  lockedCid <- create YapHolding with admin, owner = beneficiary, amount, lock = Some (vestingLock admin finish)
+  create YapVesting with admin, beneficiary, total = amount, claimed = 0.0, start, cliff, finish, revocable, lockedCid
 
 -- Operator delegation -----------------------------------------------------------------------------------
 -- Signed by the admin (governor). The operator can mint and grant vestings only while `allowance` lasts
 -- (every use shrinks it; the admin tops it up with _SetAllowance) and only until `validUntil`. It can also
 -- create preapprovals. It cannot archive/change holdings, revoke vestings or run BurnMint. The admin
 -- revokes the operator by archiving this contract (built-in Archive, the admin is the only signatory).
-template CusdtOperatorAuthority
+template YapOperatorAuthority
   with
     admin      : Party
     operator   : Party
@@ -333,7 +333,7 @@ template CusdtOperatorAuthority
     signatory admin
     observer operator
 
-    choice CusdtOperator_Mint : (ContractId CusdtHolding, ContractId CusdtOperatorAuthority)
+    choice YapOperator_Mint : (ContractId YapHolding, ContractId YapOperatorAuthority)
       with
         recipient : Party
         amount    : Decimal
@@ -341,11 +341,11 @@ template CusdtOperatorAuthority
       do
         spendAllowance this amount
         assertPrecision "mint amount" amount
-        h <- create CusdtHolding with admin, owner = recipient, amount, lock = None
+        h <- create YapHolding with admin, owner = recipient, amount, lock = None
         a <- create this with allowance = allowance - amount
         pure (h, a)
 
-    choice CusdtOperator_GrantVesting : (ContractId CusdtVesting, ContractId CusdtOperatorAuthority)
+    choice YapOperator_GrantVesting : (ContractId YapVesting, ContractId YapOperatorAuthority)
       with
         beneficiary : Party
         amount      : Decimal
@@ -360,16 +360,16 @@ template CusdtOperatorAuthority
         a <- create this with allowance = allowance - amount
         pure (v, a)
 
-    nonconsuming choice CusdtOperator_CreatePreapproval : ContractId CusdtTransferPreapproval
+    nonconsuming choice YapOperator_CreatePreapproval : ContractId YapTransferPreapproval
       with receiver : Party
       controller operator
       do
         now <- getTime
         assertMsg "operator authority expired" (now < validUntil)
-        create CusdtTransferPreapproval with admin, receiver
+        create YapTransferPreapproval with admin, receiver
 
     -- Governance only: new allowance and expiry (up or down).
-    choice CusdtOperatorAuthority_SetAllowance : ContractId CusdtOperatorAuthority
+    choice YapOperatorAuthority_SetAllowance : ContractId YapOperatorAuthority
       with
         newAllowance  : Decimal
         newValidUntil : Time
@@ -379,7 +379,7 @@ template CusdtOperatorAuthority
         assertPrecision "allowance" newAllowance
         create this with allowance = newAllowance, validUntil = newValidUntil
 
-spendAllowance : CusdtOperatorAuthority -> Decimal -> Update ()
+spendAllowance : YapOperatorAuthority -> Decimal -> Update ()
 spendAllowance a amount = do
   now <- getTime
   assertMsg "operator authority expired" (now < a.validUntil)
@@ -388,7 +388,7 @@ spendAllowance a amount = do
 
 -- Preapproval ----------------------------------------------------------------
 
-template CusdtTransferPreapproval
+template YapTransferPreapproval
   with
     admin    : Party
     receiver : Party
@@ -397,19 +397,19 @@ template CusdtTransferPreapproval
     observer receiver
 
     -- The receiver can opt out at any time (the admin can too, via Archive).
-    choice CusdtTransferPreapproval_Cancel : ()
+    choice YapTransferPreapproval_Cancel : ()
       controller receiver
       do pure ()
 
 -- Transfer factory ---------------------------------------------------------
 
-template CusdtTransferFactory
+template YapTransferFactory
   with
     admin : Party
   where
     signatory admin
 
-    interface instance TI.TransferFactory for CusdtTransferFactory where
+    interface instance TI.TransferFactory for YapTransferFactory where
       view = TI.TransferFactoryView with admin = admin, meta = M.emptyMetadata
 
       transferFactory_publicFetchImpl _self arg = do
@@ -419,7 +419,7 @@ template CusdtTransferFactory
       transferFactory_transferImpl _self arg = do
         let t = arg.transfer
         assertMsg "expectedAdmin mismatch" (arg.expectedAdmin == admin)
-        assertMsg "wrong instrument" (t.instrumentId == cusdtInstrumentId admin)
+        assertMsg "wrong instrument" (t.instrumentId == yapInstrumentId admin)
         assertMsg "amount must be positive" (t.amount > 0.0)
         assertPrecision "amount" t.amount
         assertMsg "inputHoldingCids required" (not (null t.inputHoldingCids))
@@ -430,14 +430,14 @@ template CusdtTransferFactory
         changeCids <- spendInputs admin t.sender t.amount t.inputHoldingCids
 
         -- A preapproval cid in the choice context (put there by the registry) means "direct".
-        let preapprovalCid : Optional (ContractId CusdtTransferPreapproval) =
+        let preapprovalCid : Optional (ContractId YapTransferPreapproval) =
               case TextMap.lookup preapprovalKey arg.extraArgs.context.values of
                 Some (M.AV_ContractId anyCid) -> Some (coerceContractId anyCid)
                 _ -> None
 
         if t.sender == t.receiver
           then do
-            rcv <- create CusdtHolding with admin, owner = t.receiver, amount = t.amount, lock = None
+            rcv <- create YapHolding with admin, owner = t.receiver, amount = t.amount, lock = None
             pure (completed [toInterfaceContractId rcv] changeCids)
           else do
             case preapprovalCid of
@@ -445,10 +445,10 @@ template CusdtTransferFactory
                 p <- fetch pcid
                 assertMsg "preapproval admin mismatch" (p.admin == admin)
                 assertMsg "preapproval is for a different receiver" (p.receiver == t.receiver)
-                rcv <- create CusdtHolding with admin, owner = t.receiver, amount = t.amount, lock = None
+                rcv <- create YapHolding with admin, owner = t.receiver, amount = t.amount, lock = None
                 pure (completed [toInterfaceContractId rcv] changeCids)
               None -> do
-                ti <- create CusdtTransferInstruction with
+                ti <- create YapTransferInstruction with
                   admin
                   transfer = t with inputHoldingCids = []
                 pure TI.TransferInstructionResult with
@@ -459,7 +459,7 @@ template CusdtTransferFactory
 
     -- V2: no expectedAdmin, the controllers are a free list of actors. The factory therefore checks everything itself;
     -- above all that the SENDER is among the actors, because the holdings' only signatory is the admin.
-    interface instance TI2.TransferFactory for CusdtTransferFactory where
+    interface instance TI2.TransferFactory for YapTransferFactory where
       view = TI2.TransferFactoryView with admin = admin, meta = M.emptyMetadata
 
       transferFactory_transferExtraObservers _arg = []
@@ -472,7 +472,7 @@ template CusdtTransferFactory
         sender <- accountOwner "sender" t.sender
         receiver <- accountOwner "receiver" t.receiver
         assertMsg "the sender must be among the actors" (sender `elem` arg.actors)
-        assertMsg "wrong instrument" (t.instrumentId == cusdtInstrumentIdV2 admin)
+        assertMsg "wrong instrument" (t.instrumentId == yapInstrumentIdV2 admin)
         assertMsg "amount must be positive" (t.amount > 0.0)
         assertPrecision "amount" t.amount
         assertMsg "inputHoldingCids required" (not (null t.inputHoldingCids))
@@ -483,14 +483,14 @@ template CusdtTransferFactory
         changeT <- spendInputsT admin sender t.amount (map fromInterfaceContractId t.inputHoldingCids)
         let changeCids : [ContractId H2.Holding] = map toInterfaceContractId changeT
 
-        let preapprovalCid : Optional (ContractId CusdtTransferPreapproval) =
+        let preapprovalCid : Optional (ContractId YapTransferPreapproval) =
               case TextMap.lookup preapprovalKey arg.extraArgs.context.values of
                 Some (M.AV_ContractId anyCid) -> Some (coerceContractId anyCid)
                 _ -> None
 
         if sender == receiver
           then do
-            rcv <- create CusdtHolding with admin, owner = receiver, amount = t.amount, lock = None
+            rcv <- create YapHolding with admin, owner = receiver, amount = t.amount, lock = None
             pure (v2Completed [toInterfaceContractId rcv] changeCids)
           else do
             case preapprovalCid of
@@ -498,16 +498,16 @@ template CusdtTransferFactory
                 p <- fetch pcid
                 assertMsg "preapproval admin mismatch" (p.admin == admin)
                 assertMsg "preapproval is for a different receiver" (p.receiver == receiver)
-                rcv <- create CusdtHolding with admin, owner = receiver, amount = t.amount, lock = None
+                rcv <- create YapHolding with admin, owner = receiver, amount = t.amount, lock = None
                 pure (v2Completed [toInterfaceContractId rcv] changeCids)
               None -> do
-                ti <- create CusdtTransferInstruction with
+                ti <- create YapTransferInstruction with
                   admin
                   transfer = TI.Transfer with
                     sender = sender
                     receiver = receiver
                     amount = t.amount
-                    instrumentId = cusdtInstrumentId admin
+                    instrumentId = yapInstrumentId admin
                     requestedAt = t.requestedAt
                     executeBefore = t.executeBefore
                     inputHoldingCids = []
@@ -520,7 +520,7 @@ template CusdtTransferFactory
 
 -- Transfer instruction (receiver must accept) -------------------------------
 
-template CusdtTransferInstruction
+template YapTransferInstruction
   with
     admin    : Party
     transfer : TI.Transfer
@@ -529,7 +529,7 @@ template CusdtTransferInstruction
     observer transfer.receiver
     ensure transfer.amount > 0.0
 
-    interface instance TI.TransferInstruction for CusdtTransferInstruction where
+    interface instance TI.TransferInstruction for YapTransferInstruction where
       view = TI.TransferInstructionView with
         originalInstructionCid = None
         transfer = transfer
@@ -539,17 +539,17 @@ template CusdtTransferInstruction
       transferInstruction_acceptImpl _self _arg = do
         now <- getTime
         assertMsg "transfer expired" (now < transfer.executeBefore)
-        h <- create CusdtHolding with
+        h <- create YapHolding with
           admin, owner = transfer.receiver, amount = transfer.amount, lock = None
         pure (completed [toInterfaceContractId h] [])
 
       transferInstruction_rejectImpl _self _arg = do
-        h <- create CusdtHolding with
+        h <- create YapHolding with
           admin, owner = transfer.sender, amount = transfer.amount, lock = None
         pure (failed [toInterfaceContractId h])
 
       transferInstruction_withdrawImpl _self _arg = do
-        h <- create CusdtHolding with
+        h <- create YapHolding with
           admin, owner = transfer.sender, amount = transfer.amount, lock = None
         pure (failed [toInterfaceContractId h])
 
@@ -558,14 +558,14 @@ template CusdtTransferInstruction
         abort "YAP transfer instructions have no registry-internal update steps"
 
     -- V2 choices are NON-consuming: the implementations archive the instruction themselves, and check that the right party acts.
-    interface instance TI2.TransferInstruction for CusdtTransferInstruction where
+    interface instance TI2.TransferInstruction for YapTransferInstruction where
       view = TI2.TransferInstructionView with
         originalInstructionCid = None
         transfer = TI2.Transfer with
           sender = v2Account transfer.sender
           receiver = v2Account transfer.receiver
           amount = transfer.amount
-          instrumentId = cusdtInstrumentIdV2 admin
+          instrumentId = yapInstrumentIdV2 admin
           requestedAt = transfer.requestedAt
           executeBefore = transfer.executeBefore
           inputHoldingCids = []
@@ -585,36 +585,36 @@ template CusdtTransferInstruction
         assertMsg "the receiver must be among the actors" (transfer.receiver `elem` arg.actors)
         now <- getTime
         assertMsg "transfer expired" (now < transfer.executeBefore)
-        archive (fromInterfaceContractId @CusdtTransferInstruction selfCid)
-        h <- create CusdtHolding with
+        archive (fromInterfaceContractId @YapTransferInstruction selfCid)
+        h <- create YapHolding with
           admin, owner = transfer.receiver, amount = transfer.amount, lock = None
         pure (v2Completed [toInterfaceContractId h] [])
 
       transferInstruction_rejectImpl selfCid arg = do
         assertMsg "the receiver must be among the actors" (transfer.receiver `elem` arg.actors)
-        archive (fromInterfaceContractId @CusdtTransferInstruction selfCid)
-        h <- create CusdtHolding with
+        archive (fromInterfaceContractId @YapTransferInstruction selfCid)
+        h <- create YapHolding with
           admin, owner = transfer.sender, amount = transfer.amount, lock = None
         pure (v2Failed [toInterfaceContractId h])
 
       transferInstruction_withdrawImpl selfCid arg = do
         assertMsg "the sender must be among the actors" (transfer.sender `elem` arg.actors)
-        archive (fromInterfaceContractId @CusdtTransferInstruction selfCid)
-        h <- create CusdtHolding with
+        archive (fromInterfaceContractId @YapTransferInstruction selfCid)
+        h <- create YapHolding with
           admin, owner = transfer.sender, amount = transfer.amount, lock = None
         pure (v2Failed [toInterfaceContractId h])
 
 -- Allocation (atomic settlement) ----------------------------------------------
 
 -- Reserves `leg.amount` of the sender's YAP for a settlement run by `executor`.
--- The funds sit in a locked CusdtHolding (not spendable) until executed, cancelled or withdrawn.
-template CusdtAllocationFactory
+-- The funds sit in a locked YapHolding (not spendable) until executed, cancelled or withdrawn.
+template YapAllocationFactory
   with
     admin : Party
   where
     signatory admin
 
-    interface instance AI.AllocationFactory for CusdtAllocationFactory where
+    interface instance AI.AllocationFactory for YapAllocationFactory where
       view = AI.AllocationFactoryView with admin = admin, meta = M.emptyMetadata
 
       allocationFactory_publicFetchImpl _self arg = do
@@ -626,7 +626,7 @@ template CusdtAllocationFactory
         let leg = spec.transferLeg
         let settlement = spec.settlement
         assertMsg "expectedAdmin mismatch" (arg.expectedAdmin == admin)
-        assertMsg "wrong instrument" (leg.instrumentId == cusdtInstrumentId admin)
+        assertMsg "wrong instrument" (leg.instrumentId == yapInstrumentId admin)
         assertMsg "amount must be positive" (leg.amount > 0.0)
         assertPrecision "amount" leg.amount
         assertMsg "inputHoldingCids required" (not (null arg.inputHoldingCids))
@@ -636,7 +636,7 @@ template CusdtAllocationFactory
         assertMsg "settleBefore must be after allocateBefore" (settlement.settleBefore > settlement.allocateBefore)
 
         changeCids <- spendInputs admin leg.sender leg.amount arg.inputHoldingCids
-        lockedCid <- create CusdtHolding with
+        lockedCid <- create YapHolding with
           admin
           owner = leg.sender
           amount = leg.amount
@@ -645,23 +645,23 @@ template CusdtAllocationFactory
             expiresAt = Some settlement.settleBefore
             expiresAfter = None
             context = Some "YAP settlement allocation")
-        alloc <- create CusdtAllocation with admin, allocation = spec, lockedCid
+        alloc <- create YapAllocation with admin, allocation = spec, lockedCid
         pure AI.AllocationInstructionResult with
           output = AI.AllocationInstructionResult_Completed with
             allocationCid = toInterfaceContractId alloc
           senderChangeCids = changeCids
           meta = M.emptyMetadata
 
-template CusdtAllocation
+template YapAllocation
   with
     admin      : Party
     allocation : A.AllocationSpecification
-    lockedCid  : ContractId CusdtHolding
+    lockedCid  : ContractId YapHolding
   where
     signatory admin, allocation.transferLeg.sender
     observer allocation.settlement.executor, allocation.transferLeg.receiver
 
-    interface instance A.Allocation for CusdtAllocation where
+    interface instance A.Allocation for YapAllocation where
       view = A.AllocationView with
         allocation = allocation
         holdingCids = [toInterfaceContractId lockedCid]
@@ -672,7 +672,7 @@ template CusdtAllocation
         assertMsg "settleBefore passed" (now < allocation.settlement.settleBefore)
         locked <- fetch lockedCid
         archive lockedCid
-        rcv <- create CusdtHolding with
+        rcv <- create YapHolding with
           admin, owner = allocation.transferLeg.receiver, amount = locked.amount, lock = None
         pure A.Allocation_ExecuteTransferResult with
           senderHoldingCids = []
@@ -693,7 +693,7 @@ template CusdtAllocation
 
     -- An expired lock no longer blocks the owner, so after settleBefore the locked holding may already have been spent and
     -- Allocation_Withdraw would fail on the missing holding. The sender can always drop an expired allocation with this choice.
-    choice CusdtAllocation_DiscardExpired : ()
+    choice YapAllocation_DiscardExpired : ()
       controller allocation.transferLeg.sender
       do
         now <- getTime
@@ -709,9 +709,9 @@ template CusdtAllocation
 --
 -- The executor can only settle (or cancel) allocations whose executor / sender / receiver / settlementRef
 -- match, before `expiresAt`; the leg (who gets what) is fixed in the allocation. Sender or receiver revoke
--- the delegation any time with CusdtSettlement_RevokeBySender / _RevokeByReceiver (the built-in Archive would need both).
+-- the delegation any time with YapSettlement_RevokeBySender / _RevokeByReceiver (the built-in Archive would need both).
 
-template CusdtSettlementProposal
+template YapSettlementProposal
   with
     executor        : Party
     sender          : Party
@@ -723,18 +723,18 @@ template CusdtSettlementProposal
     observer receiver, executor
     ensure sender /= receiver
 
-    choice CusdtSettlementProposal_Accept : ContractId CusdtSettlementAuthority
+    choice YapSettlementProposal_Accept : ContractId YapSettlementAuthority
       controller receiver
       do
         now <- getTime
         assertMsg "proposal expired" (now < expiresAt)
-        create CusdtSettlementAuthority with executor, sender, receiver, settlementRefId, expiresAt
+        create YapSettlementAuthority with executor, sender, receiver, settlementRefId, expiresAt
 
-    choice CusdtSettlementProposal_Reject : ()
+    choice YapSettlementProposal_Reject : ()
       controller receiver
       do pure ()
 
-template CusdtSettlementAuthority
+template YapSettlementAuthority
   with
     executor        : Party
     sender          : Party
@@ -747,15 +747,15 @@ template CusdtSettlementAuthority
 
     -- Either party can revoke ALONE. Daml's built-in Archive needs ALL signatories at once, which is impossible when
     -- sender and receiver are hosted on different nodes (found in test 22: a 0.4.0 authority could not be revoked).
-    choice CusdtSettlement_RevokeBySender : ()
+    choice YapSettlement_RevokeBySender : ()
       controller sender
       do pure ()
 
-    choice CusdtSettlement_RevokeByReceiver : ()
+    choice YapSettlement_RevokeByReceiver : ()
       controller receiver
       do pure ()
 
-    nonconsuming choice CusdtSettlement_Execute : A.Allocation_ExecuteTransferResult
+    nonconsuming choice YapSettlement_Execute : A.Allocation_ExecuteTransferResult
       with
         allocationCid : ContractId A.Allocation
         extraArgs     : M.ExtraArgs
@@ -764,7 +764,7 @@ template CusdtSettlementAuthority
         checkDelegation this allocationCid
         exercise allocationCid (A.Allocation_ExecuteTransfer with extraArgs)
 
-    nonconsuming choice CusdtSettlement_Cancel : A.Allocation_CancelResult
+    nonconsuming choice YapSettlement_Cancel : A.Allocation_CancelResult
       with
         allocationCid : ContractId A.Allocation
         extraArgs     : M.ExtraArgs
@@ -774,7 +774,7 @@ template CusdtSettlementAuthority
         exercise allocationCid (A.Allocation_Cancel with extraArgs)
 
 -- The allocation must be exactly the one this delegation was granted for.
-checkDelegation : CusdtSettlementAuthority -> ContractId A.Allocation -> Update ()
+checkDelegation : YapSettlementAuthority -> ContractId A.Allocation -> Update ()
 checkDelegation d allocationCid = do
   now <- getTime
   assertMsg "settlement authority expired" (now < d.expiresAt)
@@ -788,18 +788,18 @@ checkDelegation d allocationCid = do
 -- Burn / mint (optional token-standard interface) --------------------------------------------------------
 --
 -- Generic "burn these holdings, create those" operation for bridges and wallets (Splice.Api.Token.BurnMintV1).
--- The admin ALWAYS controls it (the standard says so), which is the same power as CusdtAdmin_Mint and the built-in
+-- The admin ALWAYS controls it (the standard says so), which is the same power as YapAdmin_Mint and the built-in
 -- Archive; the choice is just the standard, parseable way to use it. Rules enforced here:
 --   * every input is an unlocked YAP holding of THIS admin and its owner is among `extraActors` (burning needs the owner's consent),
 --   * outputs are positive with at most 6 decimals; output owners need no consent (a credit),
 --   * the totals of inputs and outputs may differ: that is what makes it usable as a bridge mint/burn.
-template CusdtBurnMintFactory
+template YapBurnMintFactory
   with
     admin : Party
   where
     signatory admin
 
-    interface instance BM.BurnMintFactory for CusdtBurnMintFactory where
+    interface instance BM.BurnMintFactory for YapBurnMintFactory where
       view = BM.BurnMintFactoryView with admin = admin, meta = M.emptyMetadata
 
       burnMintFactory_publicFetchImpl _self arg = do
@@ -808,10 +808,10 @@ template CusdtBurnMintFactory
 
       burnMintFactory_burnMintImpl _self arg = do
         assertMsg "expectedAdmin mismatch" (arg.expectedAdmin == admin)
-        assertMsg "wrong instrument" (arg.instrumentId == cusdtInstrumentId admin)
+        assertMsg "wrong instrument" (arg.instrumentId == yapInstrumentId admin)
         assertMsg "nothing to burn or mint" (not (null arg.inputHoldingCids && null arg.outputs))
         now <- getTime
-        let inputCids : [ContractId CusdtHolding] = map fromInterfaceContractId arg.inputHoldingCids
+        let inputCids : [ContractId YapHolding] = map fromInterfaceContractId arg.inputHoldingCids
         inputs <- forA inputCids fetch
         forA_ inputs $ \h -> do
           assertMsg "input admin mismatch" (h.admin == admin)
@@ -823,14 +823,14 @@ template CusdtBurnMintFactory
           assertMsg "output context is not supported" (TextMap.null o.context.values)
         forA_ inputCids archive
         created <- forA arg.outputs $ \o ->
-          create CusdtHolding with admin, owner = o.owner, amount = o.amount, lock = None
+          create YapHolding with admin, owner = o.owner, amount = o.amount, lock = None
         pure BM.BurnMintFactory_BurnMintResult with outputCids = map toInterfaceContractId created
 
 -- Linear vesting -----------------------------------------------------------------------------------------------
 --
 -- The issuer grants tokens that are released linearly between `start` and `finish` (nothing before `cliff`; at the cliff the share
 -- elapsed since `start` becomes claimable, so a cliff does not restart the clock). The unreleased remainder is an ordinary LOCKED
--- CusdtHolding of the beneficiary (lock holder = admin, expiring at `finish`), so wallets show it as locked balance; the CusdtVesting
+-- YapHolding of the beneficiary (lock holder = admin, expiring at `finish`), so wallets show it as locked balance; the YapVesting
 -- contract only keeps the schedule. The beneficiary claims what has vested at any time; a revocable grant can be revoked by the admin,
 -- which pays the vested part to the beneficiary and returns the unvested part to the admin.
 --
@@ -861,7 +861,7 @@ vestedAmount now start cliff finish total
           duration = convertRelTimeToMicroseconds (subTime finish start)
       in floorMicro (total * intToDecimal elapsed / intToDecimal duration)
 
-template CusdtVesting
+template YapVesting
   with
     admin       : Party
     beneficiary : Party
@@ -871,14 +871,14 @@ template CusdtVesting
     cliff       : Time
     finish      : Time
     revocable   : Bool
-    lockedCid   : ContractId CusdtHolding
+    lockedCid   : ContractId YapHolding
   where
     signatory admin
     observer beneficiary
     ensure total > 0.0 && claimed >= 0.0 && claimed < total && start < finish && start <= cliff && cliff <= finish
 
     -- The beneficiary takes everything that has vested and not been claimed yet.
-    choice CusdtVesting_Claim : (ContractId CusdtHolding, Optional (ContractId CusdtVesting))
+    choice YapVesting_Claim : (ContractId YapHolding, Optional (ContractId YapVesting))
       controller beneficiary
       do
         now <- getTime
@@ -887,17 +887,17 @@ template CusdtVesting
         locked <- fetch lockedCid
         assertMsg "the locked holding does not match the schedule" (locked.amount == total - claimed)
         archive lockedCid
-        released <- create CusdtHolding with admin, owner = beneficiary, amount = releasable, lock = None
+        released <- create YapHolding with admin, owner = beneficiary, amount = releasable, lock = None
         let remaining = total - claimed - releasable
         if remaining > 0.0
           then do
-            newLocked <- create CusdtHolding with admin, owner = beneficiary, amount = remaining, lock = Some (vestingLock admin finish)
+            newLocked <- create YapHolding with admin, owner = beneficiary, amount = remaining, lock = Some (vestingLock admin finish)
             v <- create this with claimed = claimed + releasable, lockedCid = newLocked
             pure (released, Some v)
           else pure (released, None)
 
     -- Admin only, and only for a revocable grant: the vested part goes to the beneficiary, the unvested part back to the admin.
-    choice CusdtVesting_Revoke : (Optional (ContractId CusdtHolding), Optional (ContractId CusdtHolding))
+    choice YapVesting_Revoke : (Optional (ContractId YapHolding), Optional (ContractId YapHolding))
       controller admin
       do
         assertMsg "this vesting is not revocable" revocable
@@ -907,16 +907,16 @@ template CusdtVesting
         let unvested = total - vested
         archive lockedCid
         toBeneficiary <- if releasable > 0.0
-          then fmap Some (create CusdtHolding with admin, owner = beneficiary, amount = releasable, lock = None)
+          then fmap Some (create YapHolding with admin, owner = beneficiary, amount = releasable, lock = None)
           else pure None
         toAdmin <- if unvested > 0.0
-          then fmap Some (create CusdtHolding with admin, owner = admin, amount = unvested, lock = None)
+          then fmap Some (create YapHolding with admin, owner = admin, amount = unvested, lock = None)
           else pure None
         pure (toBeneficiary, toAdmin)
 
     -- After the end the lock has expired, so the beneficiary may already have spent the holding and a claim could fail on the missing
     -- holding: the beneficiary can always drop the finished schedule.
-    choice CusdtVesting_Close : ()
+    choice YapVesting_Close : ()
       controller beneficiary
       do
         now <- getTime

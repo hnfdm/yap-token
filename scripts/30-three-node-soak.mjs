@@ -1,6 +1,6 @@
 // Randomised soak across THREE participants with a conservation check after EVERY operation.
 //   alice @ our node (asc-val-1) | carol @ MZF | dave @ cryptolampung | executor/issuer admin @ our node
-//   node scripts/30-three-node-soak.mjs [ops=60] [seed]       needs .env.testnet, .env.mzf, .env.cl and cusdt-token 0.4.1 on all three
+//   node scripts/30-three-node-soak.mjs [ops=60] [seed]       needs .env.testnet, .env.mzf, .env.cl and yap-token 0.4.1 on all three
 // Every actor acts ONLY on its own node. Invariants (scripts/invariants.mjs, read as admin) are checked after each operation:
 // total supply constant, locked == allocation legs, one allocation per locked holding, no zero/over-precise holdings.
 // Own traffic meter (paidTrafficCost); aborts past BUDGET (default 300000 bytes in total). After a 503 / fetch failed the ledger is re-read,
@@ -15,7 +15,7 @@ const OURS = loadEnv(".env.testnet"), MZF = loadEnv(".env.mzf"), CL = loadEnv(".
 if ([OURS, MZF, CL].some((e) => e.INSECURE_TLS === "1")) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, CAROL = MZF.CUSDT_MZF_CAROL, DAVE = CL.CUSDT_CL_DAVE;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
-const HOLD = "#cusdt-token:CusdtToken:CusdtHolding";
+const HOLD = "#yap-token:YapToken:YapHolding";
 const ours = node(OURS, "ours"), mzf = node(MZF, "mzf"), cl = node(CL, "cl");
 const NODE = { [ALICE]: ours, [CAROL]: mzf, [DAVE]: cl }, NAME = { [ALICE]: "alice", [CAROL]: "carol", [DAVE]: "dave" };
 const ACTORS = [ALICE, ALICE, ALICE, CAROL, CAROL, DAVE];            // 50 / 33 / 17 %
@@ -67,9 +67,9 @@ const OPSET = {
     const m = ri(1, Math.min(bal, 2)); await allocate(a, to, m, inputsFor(S, a, m), `soak3-${SEED}-${counter++}`); },
   async withdraw_alloc(S, a) { const x = pick(S.A.filter((c) => c.createArgument.allocation.transferLeg.sender === a)); if (!x) return "skip"; await exA(a, x.contractId, "Allocation_Withdraw"); },
   async merge(S, a) { const hs = free(S, a); if (hs.length < 3) return "skip"; const some = shuffle(hs).slice(0, Math.min(hs.length, 4));
-    await metered(NODE[a], [a], [{ ExerciseCommand: { templateId: HOLD, contractId: some[0].contractId, choice: "CusdtHolding_Merge", choiceArgument: { otherCids: some.slice(1).map((h) => h.contractId) } } }]); },
+    await metered(NODE[a], [a], [{ ExerciseCommand: { templateId: HOLD, contractId: some[0].contractId, choice: "YapHolding_Merge", choiceArgument: { otherCids: some.slice(1).map((h) => h.contractId) } } }]); },
   async split(S, a) { const h = pick(free(S, a).filter((x) => mu(x.createArgument.amount) >= 2)); if (!h) return "skip";
-    await metered(NODE[a], [a], [{ ExerciseCommand: { templateId: HOLD, contractId: h.contractId, choice: "CusdtHolding_Split", choiceArgument: { splitAmount: amt(ri(1, mu(h.createArgument.amount) - 1)) } } }]); },
+    await metered(NODE[a], [a], [{ ExerciseCommand: { templateId: HOLD, contractId: h.contractId, choice: "YapHolding_Split", choiceArgument: { splitAmount: amt(ri(1, mu(h.createArgument.amount) - 1)) } } }]); },
   // ---- must-fail (rejected before anything is sent: no ledger change) ----
   async bad_wrong_actor(S, a) { const i = pick(S.I.filter((c) => c.createArgument.transfer.sender === a)); if (!i) return "skip";
     return { mustFail: () => exTI(a, i.contractId, "TransferInstruction_Accept") }; },                 // the sender cannot accept

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Rebuilds the cUSDT DAR (v@@VERSION@@) on the testnet VPS and updates the registry.
+# Rebuilds the YAP DAR (v@@VERSION@@) on the testnet VPS and updates the registry.
 # Save as a file, then:  bash update-on-vps.sh
 set -euo pipefail
 export PATH="$HOME/.dpm/bin:$PATH"
-P=$HOME/cusdt-token/daml/cusdt-token
+P=$HOME/yap-token/daml/yap-token
 cd $P
 mkdir -p dars
 
@@ -14,17 +14,17 @@ done
 ls dars
 
 cat > daml.yaml <<'EOF_YAML'
-@@EMBED daml/cusdt-token/daml.yaml@@
+@@EMBED daml/yap-token/daml.yaml@@
 EOF_YAML
 
-cat > daml/CusdtToken.daml <<'EOF_DAML'
-@@EMBED daml/cusdt-token/daml/CusdtToken.daml@@
+cat > daml/YapToken.daml <<'EOF_DAML'
+@@EMBED daml/yap-token/daml/YapToken.daml@@
 EOF_DAML
 
 echo "== build =="
 dpm install package
 dpm build
-DAR=.daml/dist/cusdt-token-@@VERSION@@.dar
+DAR=.daml/dist/yap-token-@@VERSION@@.dar
 ls -la $DAR
 sha256sum $DAR
 

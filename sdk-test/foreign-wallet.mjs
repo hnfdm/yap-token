@@ -30,7 +30,7 @@ await step("discovery from the public registry, over a trusted certificate", asy
   ok("registry reachable by a plain fetch (certificate accepted)", r.ok);
   const assets = await dave.token.assets?.();
   const a = assets?.find((x) => x.id === "YAP");
-  ok("SDK on the foreign node discovers cUSDT with the right admin", !!a && a.admin === admin, a ? `admin ${a.admin.slice(0, 20)}…` : "not found");
+  ok("SDK on the foreign node discovers YAP with the right admin", !!a && a.admin === admin, a ? `admin ${a.admin.slice(0, 20)}…` : "not found");
 });
 
 const D0 = total(await holdings(dave, DAVE)), A0 = total(await holdings(alice, ALICE));

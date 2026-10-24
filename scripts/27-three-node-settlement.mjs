@@ -1,6 +1,6 @@
 // THREE participants in one settlement: sender carol (MZF node), receiver dave (cryptolampung node), executor = admin (OUR node).
-// carol and dave sign a CusdtSettlementAuthority (proposal on one node, accept on another); the executor settles alone from its own node.
-//   node scripts/27-three-node-settlement.mjs     needs .env.testnet, .env.mzf, .env.cl and cusdt-token 0.4.1 on all three nodes
+// carol and dave sign a YapSettlementAuthority (proposal on one node, accept on another); the executor settles alone from its own node.
+//   node scripts/27-three-node-settlement.mjs     needs .env.testnet, .env.mzf, .env.cl and yap-token 0.4.1 on all three nodes
 // Costs on the cryptolampung node: 2 transactions (accept the proposal, revoke); dave's received micro are left with him.
 import { loadEnv } from "./lib.mjs";
 import { T, snapshot, supply, checkInvariants } from "./invariants.mjs";
@@ -11,7 +11,7 @@ const OURS = loadEnv(".env.testnet"), MZF = loadEnv(".env.mzf"), CL = loadEnv(".
 if ([OURS, MZF, CL].some((e) => e.INSECURE_TLS === "1")) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, CAROL = MZF.CUSDT_MZF_CAROL, DAVE = CL.CUSDT_CL_DAVE;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
-const PKG = "#cusdt-token", PROPOSAL = `${PKG}:CusdtToken:CusdtSettlementProposal`, AUTH = `${PKG}:CusdtToken:CusdtSettlementAuthority`, HOLD = `${PKG}:CusdtToken:CusdtHolding`;
+const PKG = "#yap-token", PROPOSAL = `${PKG}:YapToken:YapSettlementProposal`, AUTH = `${PKG}:YapToken:YapSettlementAuthority`, HOLD = `${PKG}:YapToken:YapHolding`;
 const ours = node(OURS, "ours"), mzf = node(MZF, "mzf"), cl = node(CL, "cl");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
@@ -33,7 +33,7 @@ const c0 = sumH(await mine(mzf, CAROL)), d0 = sumH(await mine(cl, DAVE));
 { const o = makeOps({ token: await ours.token(), admin, registry: REGISTRY });
   const h = (await mine(ours, ALICE)).sort((a, b) => Number(b.createArgument.amount) - Number(a.createArgument.amount))[0];
   await o.transfer(ALICE, CAROL, amt(3), [h])();
-  const inst = (await waitFor(async () => (await mzf.acs(CAROL, `${PKG}:CusdtToken:CusdtTransferInstruction`)).find((i) => i.createArgument.transfer.sender === ALICE))).v;
+  const inst = (await waitFor(async () => (await mzf.acs(CAROL, `${PKG}:YapToken:YapTransferInstruction`)).find((i) => i.createArgument.transfer.sender === ALICE))).v;
   await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.TI, contractId: inst.contractId, choice: "TransferInstruction_Accept", choiceArgument: extra } }]);
   ok("setup: carol funded with 3 micro", (await waitFor(async () => sumH(await mine(mzf, CAROL)) === c0 + 3)).v !== null); }
 
@@ -42,7 +42,7 @@ const REF = `three-${Date.now()}`;
 await mzf.tx([CAROL], [{ CreateCommand: { templateId: PROPOSAL, createArguments: { executor: admin, sender: CAROL, receiver: DAVE, settlementRefId: REF, expiresAt: iso(3_600_000) } } }]);
 const prop = await waitFor(async () => (await cl.acs(DAVE, PROPOSAL)).find((p) => p.createArgument.settlementRefId === REF));
 ok("dave (third node) sees carol's proposal", !!prop.v, `after ~${prop.s}s`);
-await cl.tx([DAVE], [{ ExerciseCommand: { templateId: PROPOSAL, contractId: prop.v.contractId, choice: "CusdtSettlementProposal_Accept", choiceArgument: {} } }]);
+await cl.tx([DAVE], [{ ExerciseCommand: { templateId: PROPOSAL, contractId: prop.v.contractId, choice: "YapSettlementProposal_Accept", choiceArgument: {} } }]);
 const authority = (await waitFor(async () => (await ours.acs(admin, AUTH)).find((a) => a.createArgument.settlementRefId === REF))).v;
 ok("the authority (signed by carol@MZF + dave@cryptolampung) is visible to the executor on OUR node", !!authority && authority.createArgument.sender === CAROL && authority.createArgument.receiver === DAVE);
 
@@ -57,7 +57,7 @@ const alloc = (await waitFor(async () => (await ours.acs(admin, T.ALLOC)).find((
 ok("carol's allocation (receiver on the third node) is visible to the executor", !!alloc);
 
 // 3. the executor alone settles: three nodes, one transaction submitted on the executor's node
-let executed = true; try { await ours.tx([admin], [{ ExerciseCommand: { templateId: AUTH, contractId: authority.contractId, choice: "CusdtSettlement_Execute", choiceArgument: { allocationCid: alloc.contractId, ...extra } } }]); } catch (e) { executed = false; console.log("      execute failed: " + short(e).slice(-400)); }
+let executed = true; try { await ours.tx([admin], [{ ExerciseCommand: { templateId: AUTH, contractId: authority.contractId, choice: "YapSettlement_Execute", choiceArgument: { allocationCid: alloc.contractId, ...extra } } }]); } catch (e) { executed = false; console.log("      execute failed: " + short(e).slice(-400)); }
 ok("EXECUTOR ALONE settles a sender on node B and a receiver on node C", executed);
 const got = await waitFor(async () => sumH(await mine(cl, DAVE)) === d0 + 2);
 ok("dave received the 2 micro on the cryptolampung node", !!got.v, `after ~${got.s}s`);
@@ -66,7 +66,7 @@ ok("the allocation is consumed", !(await ours.acs(admin, T.ALLOC)).some((a) => a
 await books("the three-node settlement");
 
 // 4. revoke by dave alone (receiver on node C): executor loses the power
-await cl.tx([DAVE], [{ ExerciseCommand: { templateId: AUTH, contractId: authority.contractId, choice: "CusdtSettlement_RevokeByReceiver", choiceArgument: {} } }]);
+await cl.tx([DAVE], [{ ExerciseCommand: { templateId: AUTH, contractId: authority.contractId, choice: "YapSettlement_RevokeByReceiver", choiceArgument: {} } }]);
 ok("dave revokes the authority alone, from his own node", (await waitFor(async () => !(await ours.acs(admin, AUTH)).some((a) => a.contractId === authority.contractId))).v !== null);
 
 // 5. cleanup: carol's leftover back to alice (dave keeps his micro: that avoids more traffic on his node)

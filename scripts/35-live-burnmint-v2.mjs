@@ -1,4 +1,4 @@
-// LIVE test of cusdt-token 0.5.0 on the real ledger: BurnMint (burn-mint-v1) and the Token Standard V2 transfer interfaces.
+// LIVE test of yap-token 0.5.0 on the real ledger: BurnMint (burn-mint-v1) and the Token Standard V2 transfer interfaces.
 //   node scripts/35-live-burnmint-v2.mjs        (.env.testnet = t1)
 // Starts the NEW registry code locally (port 18788, CUSDT_ENABLE_V2=1) against the real ledger to test the V2 routes too.
 // Supply must end exactly where it started. Own traffic meter; refuses to start with little headroom.
@@ -9,7 +9,7 @@ import { node, waitFor, sleep } from "./nodes.mjs";
 
 const E = loadEnv(".env.testnet"); if (E.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const n = node(E, "t1"), admin = E.CUSDT_ADMIN_PARTY, ALICE = E.CUSDT_ALICE, BOB = E.CUSDT_BOB, sfx = admin.split("::")[1];
-const HOLD = "#cusdt-token:CusdtToken:CusdtHolding", PRE = "#cusdt-token:CusdtToken:CusdtTransferPreapproval", BMF = "#cusdt-token:CusdtToken:CusdtBurnMintFactory", ADM = "#cusdt-token:CusdtToken:CusdtAdmin";
+const HOLD = "#yap-token:YapToken:YapHolding", PRE = "#yap-token:YapToken:YapTransferPreapproval", BMF = "#yap-token:YapToken:YapBurnMintFactory", ADM = "#yap-token:YapToken:YapAdmin";
 const I_BM = "#splice-api-token-burn-mint-v1:Splice.Api.Token.BurnMintV1:BurnMintFactory";
 const I_TF2 = "#splice-api-token-transfer-instruction-v2:Splice.Api.Token.TransferInstructionV2:TransferFactory";
 const I_TI2 = "#splice-api-token-transfer-instruction-v2:Splice.Api.Token.TransferInstructionV2:TransferInstruction";
@@ -52,10 +52,10 @@ try {
   let bf = (await n.acs(admin, BMF))[0];
   await group("BurnMint: factory + reshape + net mint + net burn", async () => {
     if (!bf) { await tx([admin], [{ CreateCommand: { templateId: BMF, createArguments: { admin } } }]); bf = (await waitFor(async () => (await n.acs(admin, BMF))[0])).v; }
-    ok("CusdtBurnMintFactory exists on the live ledger", !!bf);
+    ok("YapBurnMintFactory exists on the live ledger", !!bf);
     const [adm] = await n.acs(admin, ADM);
     const before = new Set((await free(ALICE)).map((c) => c.contractId));
-    await tx([admin], [{ ExerciseCommand: { templateId: ADM, contractId: adm.contractId, choice: "CusdtAdmin_Mint", choiceArgument: { recipient: ALICE, amount: amt(2) } } }]);
+    await tx([admin], [{ ExerciseCommand: { templateId: ADM, contractId: adm.contractId, choice: "YapAdmin_Mint", choiceArgument: { recipient: ALICE, amount: amt(2) } } }]);
     const minted = (await waitFor(async () => (await free(ALICE)).find((c) => !before.has(c.contractId) && mu(c) === 2))).v;
     ok("minted a 2-micro holding for alice", !!minted);
     const bm = (inputs, outputs, extraActors) => ({ ExerciseCommand: { templateId: I_BM, contractId: bf.contractId, choice: "BurnMintFactory_BurnMint", choiceArgument: { expectedAdmin: admin, instrumentId: inst, inputHoldingCids: inputs, outputs: outputs.map(([o, a]) => ({ owner: o, amount: amt(a), context: { values: {} } })), extraActors, extraArgs: noCtx } } });
@@ -145,7 +145,7 @@ try {
     // direct-path theft: bob has a preapproval and names only himself as the actor, alice's holding disclosed to him
     const [adm] = await n.acs(admin, ADM);
     const hv = (await n.acs(ALICE, HOLD, true)).filter((c) => c.createArgument.owner === ALICE && c.createArgument.lock == null).sort((a, b) => mu(b) - mu(a))[0];
-    await tx([admin], [{ ExerciseCommand: { templateId: ADM, contractId: adm.contractId, choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver: BOB } } }]);
+    await tx([admin], [{ ExerciseCommand: { templateId: ADM, contractId: adm.contractId, choice: "YapAdmin_CreatePreapproval", choiceArgument: { receiver: BOB } } }]);
     const body = { choiceArguments: { transfer: { sender: acct(ALICE), receiver: acct(BOB), amount: amt(1), instrumentId: inst, requestedAt: iso(-30000), executeBefore: iso(3_600_000), inputHoldingCids: [hv.contractId], meta: { values: {} } } } };
     const f = await rpost("/registry/transfer-instruction/v2/transfer-factory", body);
     ok("registry answers `direct` for bob (he has a preapproval)", f.j?.transferKind === "direct");
@@ -157,7 +157,7 @@ try {
     await tx([ALICE], [{ ExerciseCommand: { templateId: I_TF2, contractId: f.j.factoryId, choice: "TransferFactory_Transfer", choiceArgument: { transfer: body.choiceArguments.transfer, actors: [ALICE], extraArgs: { context: f.j.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.j.choiceContext.disclosedContracts);
     await sleep(1200);
     ok("alice's own direct V2 transfer credits bob at once (no pending instruction)", (await n.acs(admin, T.INSTR)).filter((i) => i.createArgument.transfer.receiver === BOB).length === 0);
-    for (const pre of (await n.acs(BOB, PRE)).filter((q) => q.createArgument.receiver === BOB)) await tx([BOB], [{ ExerciseCommand: { templateId: PRE, contractId: pre.contractId, choice: "CusdtTransferPreapproval_Cancel", choiceArgument: {} } }]);
+    for (const pre of (await n.acs(BOB, PRE)).filter((q) => q.createArgument.receiver === BOB)) await tx([BOB], [{ ExerciseCommand: { templateId: PRE, contractId: pre.contractId, choice: "YapTransferPreapproval_Cancel", choiceArgument: {} } }]);
     ok("bob's preapproval cancelled again", (await n.acs(BOB, PRE)).filter((q) => q.createArgument.receiver === BOB).length === 0);
     await books("V2 theft attempts");
   });

@@ -49,13 +49,13 @@ await step("int -> ext", async () => offerAndAccept("INTERNAL alice -> EXTERNAL 
 await step("direct int -> ext", async () => {
   // direct transfer needs a preapproval: issuer creates it, the EXTERNAL receiver can cancel it with its own signature
   const { acs, submit: rawSubmit, PKG } = await import("../scripts/lib.mjs");
-  const [adm] = await acs(token, admin, `${PKG}:CusdtToken:CusdtAdmin`);
-  await rawSubmit(token, { actAs: [admin], label: "mix-pre", commands: [{ ExerciseCommand: { templateId: `${PKG}:CusdtToken:CusdtAdmin`, contractId: adm.contractId, choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver: EB.partyId } } }] });
+  const [adm] = await acs(token, admin, `${PKG}:YapToken:YapAdmin`);
+  await rawSubmit(token, { actAs: [admin], label: "mix-pre", commands: [{ ExerciseCommand: { templateId: `${PKG}:YapToken:YapAdmin`, contractId: adm.contractId, choice: "YapAdmin_CreatePreapproval", choiceArgument: { receiver: EB.partyId } } }] });
   const t0 = await bal(EB), f0 = await bal(IA);
   await as(IA, await sdk.token.transfer.create({ sender: IA, recipient: EB.partyId, amount: "0.000001", instrumentId: "YAP", registryUrl: REGISTRY }));
   ok("DIRECT internal -> external (preapproved): credited with no accept", (await bal(EB)) === t0 + 1 && (await bal(IA)) === f0 - 1 && (await sdk.token.transfer.pending(EB.partyId)).length === 0);
-  const [pre] = (await acs(token, admin, `${PKG}:CusdtToken:CusdtTransferPreapproval`)).filter((c) => c.createArgument.receiver === EB.partyId);
-  await asExternal(EB, [[{ ExerciseCommand: { templateId: `${PKG}:CusdtToken:CusdtTransferPreapproval`, contractId: pre.contractId, choice: "CusdtTransferPreapproval_Cancel", choiceArgument: {} } }], []]);
+  const [pre] = (await acs(token, admin, `${PKG}:YapToken:YapTransferPreapproval`)).filter((c) => c.createArgument.receiver === EB.partyId);
+  await asExternal(EB, [[{ ExerciseCommand: { templateId: `${PKG}:YapToken:YapTransferPreapproval`, contractId: pre.contractId, choice: "YapTransferPreapproval_Cancel", choiceArgument: {} } }], []]);
 });
 await step("give back", async () => {                       // restore the starting balances
   await offerAndAccept("give back: ext-bob -> internal alice", EB, IA, 3);

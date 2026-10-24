@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the cUSDT registry as a systemd service on the cryptolampung testnet VPS (same box as the validator).
+# Installs the YAP registry as a systemd service on the cryptolampung testnet VPS (same box as the validator).
 # Binds to 127.0.0.1:8787 only. Does NOT touch nginx or the validator; it writes an nginx
 # snippet for you to review. Save as a file, then:  bash install-registry-on-vps.sh
 set -euo pipefail
@@ -27,7 +27,7 @@ KC_CLIENT_ID=validator-app-backend
 KC_CLIENT_SECRET=__FROM_VALIDATOR_ENV__
 KC_SCOPE=daml_ledger_api
 CUSDT_ADMIN_PARTY=@@ADMIN@@
-CUSDT_PACKAGE_NAME=#cusdt-token
+CUSDT_PACKAGE_NAME=#yap-token
 # nginx on this box uses a self-signed cert; the service only talks to 127.0.0.1
 NODE_TLS_REJECT_UNAUTHORIZED=0
 EOF_ENV
@@ -44,7 +44,7 @@ grep -q "# cusdt-registry" /etc/hosts || echo "127.0.0.1 ledger-testnet.cryptola
 
 cat > /etc/systemd/system/cusdt-registry.service <<'EOF_UNIT'
 [Unit]
-Description=cUSDT token registry (CIP-56 off-ledger API)
+Description=YAP token registry (CIP-56 off-ledger API)
 After=network-online.target
 Wants=network-online.target
 

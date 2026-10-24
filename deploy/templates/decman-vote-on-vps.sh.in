@@ -16,7 +16,7 @@ pj() { python3 -c 'import sys,json
 a=json.loads(sys.argv[1]); print(a.get(sys.argv[2],""))' "$1" "$2"; }
 case "${1:-}" in
   propose)
-    D=${2:-"Approve the cUSDT governance test vote"}
+    D=${2:-"Approve the YAP governance test vote"}
     BODY=$(python3 - "$DEC" "$(rules)" "$D" <<'PY'
 import json,sys
 print(json.dumps({"party_id":sys.argv[1],"rules_contract_id":sys.argv[2],"proposal":{"type":"generic_vote","description":sys.argv[3]}}))

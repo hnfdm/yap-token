@@ -3,8 +3,8 @@
 import { ledger, ledgerEnd, PKG } from "./lib.mjs";
 
 export const T = {
-  HOLDING: `${PKG}:CusdtToken:CusdtHolding`, INSTR: `${PKG}:CusdtToken:CusdtTransferInstruction`,
-  ALLOC: `${PKG}:CusdtToken:CusdtAllocation`, ADMIN: `${PKG}:CusdtToken:CusdtAdmin`, PRE: `${PKG}:CusdtToken:CusdtTransferPreapproval`,
+  HOLDING: `${PKG}:YapToken:YapHolding`, INSTR: `${PKG}:YapToken:YapTransferInstruction`,
+  ALLOC: `${PKG}:YapToken:YapAllocation`, ADMIN: `${PKG}:YapToken:YapAdmin`, PRE: `${PKG}:YapToken:YapTransferPreapproval`,
 };
 export const mu = (s) => Math.round(Number(s) * 1e6);          // micro-units: exact integer arithmetic
 export const sumMu = (cs, f = (c) => c.createArgument.amount) => cs.reduce((s, c) => s + mu(f(c)), 0);

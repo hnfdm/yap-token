@@ -1,21 +1,21 @@
-# cUSDT: CIP-56 token on Canton testnet
+# YAP: CIP-56 token on Canton testnet
 
 A from-scratch implementation of the Canton Token Standard (CIP-0056 V1 and V2): the Daml contracts **and** the off-ledger registry API that wallets use to discover them, plus an optional **multi-owner governor** built on the Decentralization Manager.
 
-> **Status: v0.7.0 (cusdt-governance 0.2.0), testnet only.** Never on mainnet, never audited. "cUSDT" is just a ticker: the token is self-issued by its admin party and is **not** a stablecoin and **not** backed by anything. The live deployment is on `cryptolampung-testnet-1` (Splice 0.9.0, Canton 3.6.1).
+> **Status: v0.7.0 (yap-governance 0.2.0), testnet only.** Never on mainnet, never audited. "YAP" is just a ticker: the token is self-issued by its admin party and is **not** a stablecoin and **not** backed by anything. The live deployment is on `cryptolampung-testnet-1` (Splice 0.9.0, Canton 3.6.1).
 
 ## What it implements
 
 | Piece | Here |
 |---|---|
-| Holding (V1 + V2 views) | `CusdtHolding` (UTXO; locks) |
-| Transfers (V1 + V2) | `CusdtTransferFactory`, `CusdtTransferInstruction`: **offer** (receiver accepts), **direct** (receiver has a `CusdtTransferPreapproval`), **self**. V2 is advertised by the registry only with `CUSDT_ENABLE_V2=1` |
-| Allocations (V1) | `CusdtAllocationFactory`, `CusdtAllocation`; cross-participant settlement through `CusdtSettlementProposal` / `CusdtSettlementAuthority` |
-| BurnMint (burn-mint-v1) | `CusdtBurnMintFactory`: reshape / net mint / net burn; the admin always acts, the owner of a burnt holding must co-sign |
-| Locks | `CusdtHolding_Lock` (holders can release early; no holders = a pure time lock), expiry is automatic |
-| Linear vesting | `CusdtAdmin_GrantVesting`, `CusdtVesting` (claim / revoke / close); the unvested part is an ordinary locked holding |
-| Operator / governor split (0.7.0) | `CusdtOperatorAuthority`: a day-to-day **operator** mints and grants vestings inside a shrinking **allowance** until an expiry; only the **governor** (the admin party) tops it up, revokes it, revokes vestings, runs BurnMint or archives holdings |
-| Governed actions (cusdt-governance) | `AppointOperator`, `SetOperatorAllowance`, `RevokeOperator`, `RevokeVesting`, `GovernorMint`, `RescueHolding`, `BurnTreasury` proposals (`GovernableAction`) for a decentralized governor |
+| Holding (V1 + V2 views) | `YapHolding` (UTXO; locks) |
+| Transfers (V1 + V2) | `YapTransferFactory`, `YapTransferInstruction`: **offer** (receiver accepts), **direct** (receiver has a `YapTransferPreapproval`), **self**. V2 is advertised by the registry only with `CUSDT_ENABLE_V2=1` |
+| Allocations (V1) | `YapAllocationFactory`, `YapAllocation`; cross-participant settlement through `YapSettlementProposal` / `YapSettlementAuthority` |
+| BurnMint (burn-mint-v1) | `YapBurnMintFactory`: reshape / net mint / net burn; the admin always acts, the owner of a burnt holding must co-sign |
+| Locks | `YapHolding_Lock` (holders can release early; no holders = a pure time lock), expiry is automatic |
+| Linear vesting | `YapAdmin_GrantVesting`, `YapVesting` (claim / revoke / close); the unvested part is an ordinary locked holding |
+| Operator / governor split (0.7.0) | `YapOperatorAuthority`: a day-to-day **operator** mints and grants vestings inside a shrinking **allowance** until an expiry; only the **governor** (the admin party) tops it up, revokes it, revokes vestings, runs BurnMint or archives holdings |
+| Governed actions (yap-governance) | `AppointOperator`, `SetOperatorAllowance`, `RevokeOperator`, `RevokeVesting`, `GovernorMint`, `RescueHolding`, `BurnTreasury` proposals (`GovernableAction`) for a decentralized governor |
 | Registry APIs | `registry/` (off-ledger HTTP, see below) |
 | Not implemented | Allocation V2, a wallet that speaks V2 end to end (untested), governed BurnMint of holdings owned by others |
 
@@ -24,28 +24,28 @@ Rules worth knowing: amounts are limited to **6 decimals** on every entry point;
 ## Roles
 
 - **Governor** = the `admin` party of the instrument. Either an ordinary party (the original deployment) or a **decentralized party** (2-of-2 over two validators) that can only act through governed actions.
-- **Operator** = an ordinary party that holds a `CusdtOperatorAuthority`. It cannot archive holdings, revoke vestings, run BurnMint or raise its own limits.
-- Day-to-day mint contention: `CusdtOperator_Mint` is consuming, so parallel mints on the same authority collide (1 wins). Re-read the latest authority and retry, or appoint several authorities (split the allowance) and rotate.
+- **Operator** = an ordinary party that holds a `YapOperatorAuthority`. It cannot archive holdings, revoke vestings, run BurnMint or raise its own limits.
+- Day-to-day mint contention: `YapOperator_Mint` is consuming, so parallel mints on the same authority collide (1 wins). Re-read the latest authority and retry, or appoint several authorities (split the allowance) and rotate.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `daml/cusdt-token/` | The token package (`daml/CusdtToken.daml`) and the vendored Splice API DARs (`dars/`, see its README) |
-| `daml/cusdt-token-test/` | Daml Script unit tests (+ `mutations.py`, a mutation tester: 106 mutations, the survivors are equivalent double guards) |
-| `daml/cusdt-governance/` | Governed-action proposals for a decentralized governor (needs `governance-action-v1` from DLC-link, vendored in `dars/`) |
-| `daml/cusdt-governance-test/` | Unit tests for those proposals |
+| `daml/yap-token/` | The token package (`daml/YapToken.daml`) and the vendored Splice API DARs (`dars/`, see its README) |
+| `daml/yap-token-test/` | Daml Script unit tests (+ `mutations.py`, a mutation tester: 106 mutations, the survivors are equivalent double guards) |
+| `daml/yap-governance/` | Governed-action proposals for a decentralized governor (needs `governance-action-v1` from DLC-link, vendored in `dars/`) |
+| `daml/yap-governance-test/` | Unit tests for those proposals |
 | `registry/` | Registry server, zero-dependency Node >= 18 (`src/server.mjs`); `test/local.mjs` runs it against a mock ledger |
 | `scripts/` | Testnet deploy + live tests, numbered in the order you would use them (each file's header says what it does) |
-| `sdk-test/` | Drives cUSDT through the official `@canton-network/wallet-sdk` |
+| `sdk-test/` | Drives YAP through the official `@canton-network/wallet-sdk` |
 | `deploy/` | Generator for the paste-able VPS scripts (`templates/` + `generate.mjs`; output goes to the git-ignored `deploy/out/`) |
 
 ## Build and test (no local Daml SDK needed)
 
 `node deploy/generate.mjs` writes self-contained scripts into `deploy/out/`. On a fresh VPS:
 
-1. `build-test-fresh-vps.sh`: JDK + dpm, sha256-verified Splice DARs, builds `cusdt-token`, runs the Daml Script tests.
-2. `build-test-governance-on-vps.sh`: builds `cusdt-governance` and runs its tests (needs step 1 first).
+1. `build-test-fresh-vps.sh`: JDK + dpm, sha256-verified Splice DARs, builds `yap-token`, runs the Daml Script tests.
+2. `build-test-governance-on-vps.sh`: builds `yap-governance` and runs its tests (needs step 1 first).
 3. `mutation-test-on-vps.sh`: the mutation run (long).
 
 Changing a package that is already uploaded **requires a version bump** (same name + version with other content is refused). Adding templates or choices is SCU-compatible.

@@ -51,7 +51,7 @@ if (!newId) {
   const created = await kc("/clients", {
     method: "POST",
     json: {
-      clientId: NEW_CLIENT, name: "cUSDT registry (read-only)", enabled: true, protocol: "openid-connect",
+      clientId: NEW_CLIENT, name: "YAP registry (read-only)", enabled: true, protocol: "openid-connect",
       publicClient: false, serviceAccountsEnabled: true,
       standardFlowEnabled: false, implicitFlowEnabled: false, directAccessGrantsEnabled: false,
       clientAuthenticatorType: "client-secret",
@@ -97,13 +97,13 @@ const a = claims(adminTok), b = claims(roTok);
 const norm = (c) => JSON.stringify({ aud: [].concat(c.aud ?? []).sort(), scope: String(c.scope ?? "").split(" ").sort() });
 console.log("token aud/scope identical to admin client:", norm(a) === norm(b));
 
-const factories = await acs(roTok, admin, `${PKG}:CusdtToken:CusdtTransferFactory`, { blob: true });
+const factories = await acs(roTok, admin, `${PKG}:YapToken:YapTransferFactory`, { blob: true });
 console.log("READ  factory with read-only token:", factories.length === 1 ? "OK" : `UNEXPECTED (${factories.length})`);
 
-const [adm] = await acs(adminTok, admin, `${PKG}:CusdtToken:CusdtAdmin`);
+const [adm] = await acs(adminTok, admin, `${PKG}:YapToken:YapAdmin`);
 try {
   await submit(roTok, { actAs: [admin], label: "ro-must-fail", commands: [{ ExerciseCommand: {
-    templateId: `${PKG}:CusdtToken:CusdtAdmin`, contractId: adm.contractId, choice: "CusdtAdmin_Mint",
+    templateId: `${PKG}:YapToken:YapAdmin`, contractId: adm.contractId, choice: "YapAdmin_Mint",
     choiceArgument: { recipient: admin, amount: "1.0000000000" } } }] });
   console.log("WRITE with read-only token: !!! SUCCEEDED (rights too broad)");
   process.exitCode = 1;

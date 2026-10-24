@@ -68,14 +68,14 @@ await step("merge utxos", async () => {
 
 // 5. direct transfer to a preapproved receiver (preapproval is created by the issuer, then cancelled)
 await step("direct transfer", async () => {
-  const [adm] = await acs(token, admin, `${PKG}:CusdtToken:CusdtAdmin`);
-  await rawSubmit(token, { actAs: [admin], label: "pre", commands: [{ ExerciseCommand: { templateId: `${PKG}:CusdtToken:CusdtAdmin`,
-    contractId: adm.contractId, choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver: BOB } } }] });
+  const [adm] = await acs(token, admin, `${PKG}:YapToken:YapAdmin`);
+  await rawSubmit(token, { actAs: [admin], label: "pre", commands: [{ ExerciseCommand: { templateId: `${PKG}:YapToken:YapAdmin`,
+    contractId: adm.contractId, choice: "YapAdmin_CreatePreapproval", choiceArgument: { receiver: BOB } } }] });
   await submit([ALICE], await xfer(ALICE, BOB, 1));
   ok("direct: credited with no pending instruction", total(await holdings(BOB)) === B0 + 3 && (await sdk.token.transfer.pending(BOB)).length === 0);
-  const [pre] = (await acs(token, admin, `${PKG}:CusdtToken:CusdtTransferPreapproval`)).filter((c) => c.createArgument.receiver === BOB);
-  await rawSubmit(token, { actAs: [BOB], label: "cancel", commands: [{ ExerciseCommand: { templateId: `${PKG}:CusdtToken:CusdtTransferPreapproval`,
-    contractId: pre.contractId, choice: "CusdtTransferPreapproval_Cancel", choiceArgument: {} } }] });
+  const [pre] = (await acs(token, admin, `${PKG}:YapToken:YapTransferPreapproval`)).filter((c) => c.createArgument.receiver === BOB);
+  await rawSubmit(token, { actAs: [BOB], label: "cancel", commands: [{ ExerciseCommand: { templateId: `${PKG}:YapToken:YapTransferPreapproval`,
+    contractId: pre.contractId, choice: "YapTransferPreapproval_Cancel", choiceArgument: {} } }] });
 });
 
 // 6. allocation: create via SDK, see it via the Allocation view, withdraw, then create again and execute
@@ -94,7 +94,7 @@ await step("allocation", async () => {
   let pend = await sdk.token.allocation.pending(ALICE);
   ok("allocation visible via SDK Allocation view", pend.length >= 1, `${pend.length} allocation(s)`);
   const locked = (await holdings(ALICE)).filter((h) => h.interfaceViewValue.lock);
-  ok("3 cUSDT shown as locked", locked.length === 1 && Number(locked[0].interfaceViewValue.amount) === 3);
+  ok("3 YAP shown as locked", locked.length === 1 && Number(locked[0].interfaceViewValue.amount) === 3);
   await submit([ALICE], await sdk.token.allocation.withdraw({ allocationCid: pend[0].contractId, asset }));
   ok("withdraw via SDK releases the lock", (await holdings(ALICE)).every((h) => !h.interfaceViewValue.lock) && total(await holdings(ALICE)) === A0 - 3);
 

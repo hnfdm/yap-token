@@ -13,7 +13,7 @@ const OURS = loadEnv(".env.testnet");
 if (OURS.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, BOB = `cusdt-bob::${sfx}`;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
-const PKG = "#cusdt-token", HOLD = `${PKG}:CusdtToken:CusdtHolding`, INSTR = `${PKG}:CusdtToken:CusdtTransferInstruction`, PRE = `${PKG}:CusdtToken:CusdtTransferPreapproval`;
+const PKG = "#yap-token", HOLD = `${PKG}:YapToken:YapHolding`, INSTR = `${PKG}:YapToken:YapTransferInstruction`, PRE = `${PKG}:YapToken:YapTransferPreapproval`;
 const ours = node(OURS, "ours");
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 const extra = { extraArgs: { context: { values: {} }, meta: { values: {} } } };
@@ -75,7 +75,7 @@ catch (e) { accErr = short(e).slice(-200); }
 console.log(`      accepted ${accepted}/${seen.length} in ${((Date.now() - t1) / 1000).toFixed(0)} s; ${bytes - b1} bytes (avg ${accepted ? Math.round((bytes - b1) / accepted) : 0}/accept)${accErr ? "; stopped: " + accErr : ""}`);
 ok("receiver accepted every offer", accepted === seen.length, accErr);
 ok("receiver holds the sum", sumH(await free(RCV)) === r0 + accepted);
-{ const hs = await free(RCV); if (hs.length > 1) { try { meter(await ours.tx([RCV], [{ ExerciseCommand: { templateId: HOLD, contractId: hs[0].contractId, choice: "CusdtHolding_Merge", choiceArgument: { otherCids: hs.slice(1).map((h) => h.contractId) } } }])); console.log(`      merged ${hs.length} holdings in ONE tx`); } catch (e) { console.log("      merge failed: " + short(e).slice(-160)); } } }
+{ const hs = await free(RCV); if (hs.length > 1) { try { meter(await ours.tx([RCV], [{ ExerciseCommand: { templateId: HOLD, contractId: hs[0].contractId, choice: "YapHolding_Merge", choiceArgument: { otherCids: hs.slice(1).map((h) => h.contractId) } } }])); console.log(`      merged ${hs.length} holdings in ONE tx`); } catch (e) { console.log("      merge failed: " + short(e).slice(-160)); } } }
 ok("no pending instructions left", (await ours.acs(admin, INSTR)).length === 0);
 const v = checkInvariants(await snapshot(await ours.token(), admin), expected);
 ok("conservation", v.length === 0, v.join("; "));

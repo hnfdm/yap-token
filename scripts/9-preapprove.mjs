@@ -6,13 +6,13 @@ if (!receiver) throw new Error("usage: 9-preapprove.mjs <party>");
 const admin = need("CUSDT_ADMIN_PARTY");
 const token = await getToken();
 
-const existing = (await acs(token, admin, `${PKG}:CusdtToken:CusdtTransferPreapproval`))
+const existing = (await acs(token, admin, `${PKG}:YapToken:YapTransferPreapproval`))
   .filter((c) => c.createArgument.receiver === receiver);
 if (existing.length) { console.log("already has preapproval", existing[0].contractId.slice(0, 16) + "..."); process.exit(0); }
 
-const [adm] = await acs(token, admin, `${PKG}:CusdtToken:CusdtAdmin`);
-if (!adm) throw new Error("CusdtAdmin not found");
+const [adm] = await acs(token, admin, `${PKG}:YapToken:YapAdmin`);
+if (!adm) throw new Error("YapAdmin not found");
 await submit(token, { actAs: [admin], label: "preapprove", commands: [{ ExerciseCommand: {
-  templateId: `${PKG}:CusdtToken:CusdtAdmin`, contractId: adm.contractId,
-  choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver } } }] });
+  templateId: `${PKG}:YapToken:YapAdmin`, contractId: adm.contractId,
+  choice: "YapAdmin_CreatePreapproval", choiceArgument: { receiver } } }] });
 console.log("preapproval created for", receiver);

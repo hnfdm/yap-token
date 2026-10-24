@@ -1,4 +1,4 @@
-// cUSDT between TWO participants of the same testnet: ours (asc-val-1: admin, alice) and MZF's (carol).
+// YAP between TWO participants of the same testnet: ours (asc-val-1: admin, alice) and MZF's (carol).
 //   node scripts/21-cross-participant.mjs        (needs .env.testnet and .env.mzf, run 20-mzf-setup first)
 // Tiny amounts only: the MZF validator has ~210k traffic units in total.
 import { readFileSync } from "node:fs";
@@ -12,14 +12,14 @@ if (OURS.INSECURE_TLS === "1" || MZF.INSECURE_TLS === "1") process.env.NODE_TLS_
 const admin = OURS.CUSDT_ADMIN_PARTY, suffix = admin.split("::")[1];
 const ALICE = `cusdt-alice::${suffix}`, CAROL = MZF.CUSDT_MZF_CAROL;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
-const PKG = "#cusdt-token";
+const PKG = "#yap-token";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 
 const ours = node(OURS, "ours"), mzf = node(MZF, "mzf");
 const opsNow = async () => makeOps({ token: await ours.token(), admin, registry: REGISTRY });
 const sumH = (hs) => hs.reduce((s, h) => s + Math.round(Number(h.createArgument.amount) * 1e6), 0);
-const mine = async (nd, p) => (await nd.acs(p, `${PKG}:CusdtToken:CusdtHolding`)).filter((c) => c.createArgument.owner === p && c.createArgument.lock == null);
+const mine = async (nd, p) => (await nd.acs(p, `${PKG}:YapToken:YapHolding`)).filter((c) => c.createArgument.owner === p && c.createArgument.lock == null);
 const waitFor = async (what, fn, ms = 90_000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = await fn(); if (v) return { v, s: Math.round((Date.now() - t0) / 1000) }; await sleep(3000); } return { v: null, s: Math.round(ms / 1000) }; };
 
 let pass = 0, fail = 0;
@@ -37,7 +37,7 @@ await group("1. offer: alice (our node) -> carol (MZF node), carol accepts there
   const c0 = sumH(await mine(mzf, CAROL)); const o = await opsNow();
   const h = (await mine(ours, ALICE)).sort((a, b) => Number(b.createArgument.amount) - Number(a.createArgument.amount))[0];
   await o.transfer(ALICE, CAROL, amt(2), [h])();
-  const seen = await waitFor("instruction at carol", async () => (await mzf.acs(CAROL, `${PKG}:CusdtToken:CusdtTransferInstruction`)).find((i) => i.createArgument.transfer.sender === ALICE));
+  const seen = await waitFor("instruction at carol", async () => (await mzf.acs(CAROL, `${PKG}:YapToken:YapTransferInstruction`)).find((i) => i.createArgument.transfer.sender === ALICE));
   ok("the offer reaches the OTHER participant", !!seen.v, `visible at carol after ~${seen.s}s`);
   await mzf.tx([CAROL], ti(seen.v.contractId, "TransferInstruction_Accept"));
   const got = await waitFor("holding at carol", async () => sumH(await mine(mzf, CAROL)) === c0 + 2);
@@ -48,16 +48,16 @@ await group("1. offer: alice (our node) -> carol (MZF node), carol accepts there
 await group("2. direct: preapproval for a REMOTE receiver, carol cancels it on her node", async () => {
   const c0 = sumH(await mine(mzf, CAROL)); const o = await opsNow();
   const [adm] = await ours.acs(admin, T.ADMIN);
-  await ours.tx([admin], [{ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver: CAROL } } }]);
+  await ours.tx([admin], [{ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "YapAdmin_CreatePreapproval", choiceArgument: { receiver: CAROL } } }]);
   const h = (await mine(ours, ALICE))[0];
   const probe = await regPost("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: { sender: ALICE, receiver: CAROL, amount: amt(1), instrumentId: { admin, id: "YAP" }, requestedAt: new Date(Date.now() - 30000).toISOString(), executeBefore: new Date(Date.now() + 3.6e6).toISOString(), inputHoldingCids: [], meta: { values: {} } } } });
   ok("registry answers `direct` for a receiver on another participant", probe.transferKind === "direct", probe.transferKind);
   await o.transfer(ALICE, CAROL, amt(1), [h])();
   const got = await waitFor("direct credit", async () => sumH(await mine(mzf, CAROL)) === c0 + 1);
   ok("direct transfer credited carol with no accept", !!got.v, `after ~${got.s}s`);
-  const pre = (await mzf.acs(CAROL, `${PKG}:CusdtToken:CusdtTransferPreapproval`))[0];
+  const pre = (await mzf.acs(CAROL, `${PKG}:YapToken:YapTransferPreapproval`))[0];
   ok("carol can see her preapproval", !!pre);
-  if (pre) { await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: `${PKG}:CusdtToken:CusdtTransferPreapproval`, contractId: pre.contractId, choice: "CusdtTransferPreapproval_Cancel", choiceArgument: {} } }]); ok("carol cancelled it from her node", true); }
+  if (pre) { await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: `${PKG}:YapToken:YapTransferPreapproval`, contractId: pre.contractId, choice: "YapTransferPreapproval_Cancel", choiceArgument: {} } }]); ok("carol cancelled it from her node", true); }
   await books("2");
 });
 

@@ -1,4 +1,4 @@
-// LIVE test of cusdt-token 0.7.0: tokens minted by the OPERATOR (not the admin) behave like any other holding in the
+// LIVE test of yap-token 0.7.0: tokens minted by the OPERATOR (not the admin) behave like any other holding in the
 // registry flows: V1 offer + accept, V2 offer + accept, and a DIRECT transfer to the operator (it created its own preapproval).
 //   node scripts/38-live-operator-registry.mjs      (.env.testnet = t1, needs CUSDT_OPERATOR)
 // Starts the registry code locally (port 18789, V2 on) against the real ledger. Everything is burnt at the end.
@@ -10,7 +10,7 @@ import { node, waitFor, sleep } from "./nodes.mjs";
 const E = loadEnv(".env.testnet"); if (E.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 if (!E.CUSDT_OPERATOR) throw new Error("CUSDT_OPERATOR missing in .env.testnet");
 const n = node(E, "t1"), admin = E.CUSDT_ADMIN_PARTY, ALICE = E.CUSDT_ALICE, BOB = E.CUSDT_BOB, OP = E.CUSDT_OPERATOR;
-const P = "#cusdt-token:CusdtToken:", HOLD = P + "CusdtHolding", ADM = P + "CusdtAdmin", OPA = P + "CusdtOperatorAuthority", PRE = P + "CusdtTransferPreapproval", BMF = P + "CusdtBurnMintFactory";
+const P = "#yap-token:YapToken:", HOLD = P + "YapHolding", ADM = P + "YapAdmin", OPA = P + "YapOperatorAuthority", PRE = P + "YapTransferPreapproval", BMF = P + "YapBurnMintFactory";
 const I_BM = "#splice-api-token-burn-mint-v1:Splice.Api.Token.BurnMintV1:BurnMintFactory";
 const I_TF1 = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferFactory";
 const I_TI1 = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferInstruction";
@@ -43,7 +43,7 @@ const authority = async () => (await n.acs(admin, OPA))[0];
 const mintByOperator = async (to, micro) => {
   const a = await authority();
   const before = new Set((await free(to)).map((c) => c.contractId));
-  await n.tx([OP], [ex(OPA, a.contractId, "CusdtOperator_Mint", { recipient: to, amount: amt(micro) })]);
+  await n.tx([OP], [ex(OPA, a.contractId, "YapOperator_Mint", { recipient: to, amount: amt(micro) })]);
   return (await waitFor(async () => (await free(to)).find((c) => !before.has(c.contractId) && mu(c) === micro))).v;
 };
 let minted = 0;
@@ -53,7 +53,7 @@ try {
   for (const a of await n.acs(admin, OPA)) await n.tx([admin], [ex(OPA, a.contractId, "Archive")]);
   for (const p of (await n.acs(admin, PRE)).filter((p) => p.createArgument.receiver === OP)) await n.tx([admin], [ex(PRE, p.contractId, "Archive")]); // OP starts without a preapproval, so V1/V2 go through offers
 const oldPre = new Set();
-  await n.tx([admin], [ex(ADM, adm.contractId, "CusdtAdmin_AppointOperator", { operator: OP, allowance: amt(100000), validUntil: iso(3_600_000) })]);
+  await n.tx([admin], [ex(ADM, adm.contractId, "YapAdmin_AppointOperator", { operator: OP, allowance: amt(100000), validUntil: iso(3_600_000) })]);
   await waitFor(async () => (await authority()) || null);
 
   await group("V1 flow with an operator-minted holding: registry offer, operator accepts", async () => {
@@ -65,7 +65,7 @@ const oldPre = new Set();
     ok("registry V1 answered `offer`", f.status === 200 && f.j.transferKind === "offer", `${f.status} ${f.j?.transferKind}`);
     await n.tx([ALICE], [ex(I_TF1, f.j.factoryId, "TransferFactory_Transfer", { expectedAdmin: admin, transfer: t, extraArgs: { context: f.j.choiceContext.choiceContextData, meta: { values: {} } } })], f.j.choiceContext.disclosedContracts);
     if (f.j.transferKind === "offer") {
-      const p = (await waitFor(async () => (await n.acs(admin, P + "CusdtTransferInstruction")).find((i) => i.createArgument.transfer.receiver === OP && mu({ createArgument: { amount: i.createArgument.transfer.amount } }) === 7000))).v;
+      const p = (await waitFor(async () => (await n.acs(admin, P + "YapTransferInstruction")).find((i) => i.createArgument.transfer.receiver === OP && mu({ createArgument: { amount: i.createArgument.transfer.amount } }) === 7000))).v;
       await n.tx([OP], [ex(I_TI1, p.contractId, "TransferInstruction_Accept", { extraArgs: noCtx })]);
     }
     await sleep(1500);
@@ -81,7 +81,7 @@ const oldPre = new Set();
     ok("registry V2 answered `offer`", f.status === 200 && f.j.transferKind === "offer", `${f.status} ${f.j?.transferKind}`);
     await n.tx([ALICE], [ex(I_TF2, f.j.factoryId, "TransferFactory_Transfer", { transfer: t, actors: [ALICE], extraArgs: { context: f.j.choiceContext.choiceContextData, meta: { values: {} } } })], f.j.choiceContext.disclosedContracts);
     if (f.j.transferKind === "offer") {
-      const p = (await waitFor(async () => (await n.acs(admin, P + "CusdtTransferInstruction")).find((i) => i.createArgument.transfer.receiver === OP && Math.round(Number(i.createArgument.transfer.amount) * 1e6) === 6000))).v;
+      const p = (await waitFor(async () => (await n.acs(admin, P + "YapTransferInstruction")).find((i) => i.createArgument.transfer.receiver === OP && Math.round(Number(i.createArgument.transfer.amount) * 1e6) === 6000))).v;
       await n.tx([OP], [ex(I_TI2, p.contractId, "TransferInstruction_Accept", { actors: [OP], extraArgs: noCtx })]);
     }
     await sleep(1500);
@@ -91,7 +91,7 @@ const oldPre = new Set();
 
   await group("DIRECT transfer to the operator (preapproval created by the operator itself)", async () => {
     const a = await authority();
-    await n.tx([OP], [ex(OPA, a.contractId, "CusdtOperator_CreatePreapproval", { receiver: OP })]);
+    await n.tx([OP], [ex(OPA, a.contractId, "YapOperator_CreatePreapproval", { receiver: OP })]);
     const h = await mintByOperator(ALICE, 5000); minted += 5000;
     const o0 = await total(OP);
     const t = { sender: acct(ALICE), receiver: acct(OP), amount: amt(5000), instrumentId: inst, requestedAt: iso(-30000), executeBefore: iso(3_600_000), inputHoldingCids: [h.contractId], meta: { values: {} } };

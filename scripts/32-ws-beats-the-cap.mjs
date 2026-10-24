@@ -20,8 +20,8 @@ try {
   const [adm] = await n.acs(admin, T.ADMIN);
   for (let left = COUNT; left > 0;) {
     const k = Math.min(50, left);
-    const r = meter(await n.tx([admin], Array.from({ length: k }, () => ({ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver: ALICE } } }))));
-    for (const e of r.transaction.events) if (e.ExercisedEvent?.choice === "CusdtAdmin_CreatePreapproval") created.push(e.ExercisedEvent.exerciseResult);
+    const r = meter(await n.tx([admin], Array.from({ length: k }, () => ({ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "YapAdmin_CreatePreapproval", choiceArgument: { receiver: ALICE } } }))));
+    for (const e of r.transaction.events) if (e.ExercisedEvent?.choice === "YapAdmin_CreatePreapproval") created.push(e.ExercisedEvent.exerciseResult);
     left -= k;
   }
   console.log(`created ${created.length} junk preapprovals (metered ${bytes} bytes); existing before: ${before}`);

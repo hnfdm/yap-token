@@ -71,7 +71,7 @@ async function settleAll() {   // withdraw every pending instruction / allocatio
 }
 async function ensureNoPreapproval() {
   const pre = (await acs(token, admin, T.PRE)).filter((c) => c.createArgument.receiver === BOB);
-  for (const c of pre) await tplT([BOB], T.PRE, c.contractId, "CusdtTransferPreapproval_Cancel", {})();
+  for (const c of pre) await tplT([BOB], T.PRE, c.contractId, "YapTransferPreapproval_Cancel", {})();
 }
 /** make sure `p` has at least n free holdings of >= minMu each, by splitting the biggest one */
 async function ensureHoldings(p, n, minMu) {
@@ -80,7 +80,7 @@ async function ensureHoldings(p, n, minMu) {
     if (hs.length >= n) return hs.slice(0, n);
     const big = free(await snap(), p)[0];
     if (!big || mu(big.createArgument.amount) < 2 * minMu) throw new Error(`${p} lacks funds for ${n} holdings of ${minMu}`);
-    await tplT([p], T.HOLDING, big.contractId, "CusdtHolding_Split", { splitAmount: amt(Math.floor(mu(big.createArgument.amount) / 2)) })();
+    await tplT([p], T.HOLDING, big.contractId, "YapHolding_Split", { splitAmount: amt(Math.floor(mu(big.createArgument.amount) / 2)) })();
   }
   throw new Error("ensureHoldings did not converge");
 }
@@ -124,22 +124,22 @@ console.log(`start: supply ${expected / 1e6}, alice ${free(S, ALICE).length} hol
 
 // F: split vs transfer on one holding; two merges that share a holding
 { const [H] = await ensureHoldings(ALICE, 1, 1000);
-  await race("F1 split vs transfer on one holding", [tplT([ALICE], T.HOLDING, H.contractId, "CusdtHolding_Split", { splitAmount: amt(100) }), transferT(ALICE, BOB, 100, [H])]);
+  await race("F1 split vs transfer on one holding", [tplT([ALICE], T.HOLDING, H.contractId, "YapHolding_Split", { splitAmount: amt(100) }), transferT(ALICE, BOB, 100, [H])]);
   await invariants("F1"); await settleAll();
   const [h1, h2, h3] = await ensureHoldings(ALICE, 3, 1000);
-  await race("F2 two merges sharing a holding", [tplT([ALICE], T.HOLDING, h1.contractId, "CusdtHolding_Merge", { otherCids: [h2.contractId] }), tplT([ALICE], T.HOLDING, h3.contractId, "CusdtHolding_Merge", { otherCids: [h2.contractId] })]);
+  await race("F2 two merges sharing a holding", [tplT([ALICE], T.HOLDING, h1.contractId, "YapHolding_Merge", { otherCids: [h2.contractId] }), tplT([ALICE], T.HOLDING, h3.contractId, "YapHolding_Merge", { otherCids: [h2.contractId] })]);
   await invariants("F2"); await settleAll(); }
 
 // G: deduplication - the same commandId twice must not apply twice (mint has no inputs, so only dedup can stop it)
 { const before = supply(await snap()); const cid = `dedup-${Date.now()}`;
   const [adm] = await acs(token, admin, T.ADMIN);
-  const mint = () => submit(token, { actAs: [admin], label: "dedup", commandId: cid, commands: [{ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "CusdtAdmin_Mint", choiceArgument: { recipient: BOB, amount: amt(1) } } }] });
+  const mint = () => submit(token, { actAs: [admin], label: "dedup", commandId: cid, commands: [{ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "YapAdmin_Mint", choiceArgument: { recipient: BOB, amount: amt(1) } } }] });
   const res = await Promise.allSettled([mint(), mint()]);
   const delta = supply(await snap()) - before;
   ok("G  same commandId twice applies once", delta === 1, `supply +${delta} micro; outcomes ${res.map((r) => r.status === "fulfilled" ? "ok" : reason(r.reason)).join(" / ")}`);
   expected += delta;                                   // account for whatever was actually minted
   const tiny = free(await snap(), BOB).find((h) => mu(h.createArgument.amount) === 1);
-  if (tiny) { await tplT([BOB], T.HOLDING, tiny.contractId, "CusdtHolding_Burn", {})(); expected -= 1; }
+  if (tiny) { await tplT([BOB], T.HOLDING, tiny.contractId, "YapHolding_Burn", {})(); expected -= 1; }
   await invariants("G"); }
 
 // H: independent holdings must NOT interfere: all succeed, and all can be withdrawn at once

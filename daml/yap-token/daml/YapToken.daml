@@ -5,12 +5,15 @@
 module YapToken where
 
 import DA.Foldable (forA_)
+import DA.List (dedup, sort)
 import DA.Time (subTime, convertRelTimeToMicroseconds)
 import DA.Map qualified as Map
 import DA.Text qualified as Text
 import DA.TextMap qualified as TextMap
 import Splice.Api.Token.AllocationInstructionV1 qualified as AI
 import Splice.Api.Token.AllocationV1 qualified as A
+import Splice.Api.Token.AllocationV2 qualified as A2
+import Splice.Api.Token.AllocationInstructionV2 qualified as AI2
 import Splice.Api.Token.BurnMintV1 qualified as BM
 import Splice.Api.Token.HoldingV1 qualified as H
 import Splice.Api.Token.HoldingV2 qualified as H2
@@ -652,6 +655,51 @@ template YapAllocationFactory
           senderChangeCids = changeCids
           meta = M.emptyMetadata
 
+    -- Token Standard V2: multi-leg allocations of the NET amount, optionally committed until the settlement deadline.
+    interface instance AI2.AllocationFactory for YapAllocationFactory where
+      view = AI2.AllocationFactoryView with admin = admin, meta = M.emptyMetadata
+
+      allocationFactory_allocateExtraObservers _arg = []
+
+      allocationFactory_publicFetchImpl _self _arg =
+        pure (AI2.AllocationFactoryView with admin = admin, meta = M.emptyMetadata)
+
+      allocationFactory_allocateImpl _self arg = do
+        let spec = arg.allocation
+        owner <- validateAllocationSpecV2 admin arg.settlement spec
+        assertMsg "the authorizer must be among the actors" (owner `elem` arg.actors)
+        now <- getTime
+        assertMsg "requestedAt must be in the past" (arg.requestedAt <= now)
+        let net = netCredit spec.transferLegSides
+        let required = if net < 0.0 then negate net else 0.0
+        let inputCids : [ContractId YapHolding] = map fromInterfaceContractId arg.inputHoldingCids
+        -- only the NET outflow is locked; with nothing to lock the inputs are returned untouched
+        (lockedCids, changeCids) <-
+          if required > 0.0
+            then do
+              assertMsg "inputHoldingCids required" (not (null inputCids))
+              change <- spendInputsT admin owner required inputCids
+              locked <- create YapHolding with
+                admin
+                owner
+                amount = required
+                lock = Some (H.Lock with
+                  holders = dedup (admin :: arg.settlement.executors)
+                  expiresAt = spec.settlementDeadline
+                  expiresAfter = None
+                  context = Some ("YAP allocation for settlement " <> arg.settlement.id))
+              pure ([locked], change)
+            else pure ([], inputCids)
+        alloc <- create YapAllocationV2 with
+          admin, owner, settlement = arg.settlement, spec, lockedCids, createdAt = now
+        pure AI2.AllocationInstructionResult with
+          output = AI2.AllocationInstructionResult_Completed with
+            allocationCid = toInterfaceContractId alloc
+          authorizerChangeCids =
+            if null changeCids then TextMap.empty
+            else TextMap.fromList [(yapSymbol, map (toInterfaceContractId @H2.Holding) changeCids)]
+          meta = M.emptyMetadata
+
 template YapAllocation
   with
     admin      : Party
@@ -699,6 +747,198 @@ template YapAllocation
         now <- getTime
         assertMsg "the settlement window has not passed yet" (now >= allocation.settlement.settleBefore)
         pure ()
+
+-- Allocation V2 (Token Standard V2) ------------------------------------------------------------------------
+--
+-- Multi-leg allocations of the NET amount: the authorizer locks only what leaves its account beyond what comes in. They may be
+-- "committed" (not withdrawable before the settlement deadline). Settlement is run by the executors through YapSettlementFactory, which
+-- checks that every transfer leg is authorized by BOTH sides before it settles each allocation; Allocation_Settle itself only pays out
+-- the authorizer's own net result (locked funds + incoming - outgoing). Iterated settlement (nextIterationFunding) is NOT supported
+-- and refused with a clear message.
+
+-- incoming minus outgoing, for the sides of ONE authorizer
+netCredit : [A2.TransferLegSide] -> Decimal
+netCredit sides = sum (map signed sides)
+  where
+    signed s = case s.side of
+      A2.ReceiverSide -> s.amount
+      A2.SenderSide -> negate s.amount
+
+-- the single-iteration subset of the standard; returns the owner of the authorizer account
+validateAllocationSpecV2 : Party -> A2.SettlementInfo -> A2.AllocationSpecification -> Update Party
+validateAllocationSpecV2 admin settlement spec = do
+  assertMsg "allocation admin mismatch" (spec.admin == admin)
+  owner <- accountOwner "authorizer" spec.authorizer
+  assertMsg "at least one executor is required" (not (null settlement.executors))
+  assertMsg "at least one transfer leg side is required" (not (null spec.transferLegSides))
+  assertMsg "iterated settlement is not supported (nextIterationFunding must be None)" (spec.nextIterationFunding == None)
+  now <- getTime
+  case spec.settlementDeadline of
+    Some d -> assertMsg "settlementDeadline must be in the future" (d > now)
+    None -> assertMsg "a committed allocation needs a settlementDeadline" (not spec.committed)
+  forA_ spec.transferLegSides $ \s -> do
+    assertMsg "wrong instrument" (s.instrumentId == yapSymbol)
+    assertMsg "amount must be positive" (s.amount > 0.0)
+    assertPrecision "amount" s.amount
+    other <- accountOwner "otherside" s.otherside
+    assertMsg "a leg cannot be between an account and itself" (other /= owner)
+  let ids = map (\s -> s.transferLegId) spec.transferLegSides
+  assertMsg "duplicate transferLegId" (length (dedup ids) == length ids)
+  pure owner
+
+-- Unlocks a locked holding of an allocation (same amount, no lock) and returns the new holding.
+unlockForOwner : ContractId YapHolding -> Update (ContractId H2.Holding)
+unlockForOwner cid = do
+  locked <- fetch cid
+  archive cid
+  h <- create YapHolding with admin = locked.admin, owner = locked.owner, amount = locked.amount, lock = None
+  pure (toInterfaceContractId @H2.Holding h)
+
+holdingsByInstrument : [ContractId H2.Holding] -> TextMap.TextMap [ContractId H2.Holding]
+holdingsByInstrument [] = TextMap.empty
+holdingsByInstrument cids = TextMap.fromList [(yapSymbol, cids)]
+
+template YapAllocationV2
+  with
+    admin      : Party
+    owner      : Party
+    settlement : A2.SettlementInfo
+    spec       : A2.AllocationSpecification
+    lockedCids : [ContractId YapHolding]
+    createdAt  : Time
+  where
+    signatory admin, owner
+    observer settlement.executors <> [ p | s <- spec.transferLegSides, Some p <- [s.otherside.owner] ]
+
+    interface instance A2.Allocation for YapAllocationV2 where
+      view = A2.AllocationView with
+        originalAllocationCid = None
+        settlement
+        allocation = spec
+        holdingCids = map toInterfaceContractId lockedCids
+        createdAt
+        numIterations = 0
+        expiresAt = spec.settlementDeadline
+        availableActions = Map.fromList
+          [ (A2.AA_Settle, [dedup (admin :: settlement.executors)])
+          , (A2.AA_Cancel, [settlement.executors])
+          , (A2.AA_Withdraw, [[owner]]) ]
+        meta = M.emptyMetadata
+
+      allocation_settleExtraObservers _arg = []
+      allocation_cancelExtraObservers _arg = []
+      allocation_withdrawExtraObservers _arg = []
+
+      allocation_settleImpl self arg = do
+        assertMsg "the settlement must be run by the admin and all executors" (all (`elem` arg.actors) (admin :: settlement.executors))
+        assertMsg "iterated settlement is not supported" (null arg.extraTransferLegSides && arg.nextIterationFunding == None)
+        now <- getTime
+        forA_ spec.settlementDeadline $ \d -> assertMsg "the settlement deadline has passed" (now < d)
+        locked <- forA lockedCids fetch
+        forA_ lockedCids archive
+        archive (fromInterfaceContractId @YapAllocationV2 self)
+        -- the authorizer's own net result: what it locked, plus what comes in, minus what goes out
+        let final = sum (map (\h -> h.amount) locked) + netCredit spec.transferLegSides
+        assertMsg "not enough funds locked for the net outflow" (final >= 0.0)
+        out <- if final > 0.0
+          then do
+            h <- create YapHolding with admin, owner, amount = final, lock = None
+            pure [toInterfaceContractId @H2.Holding h]
+          else pure []
+        pure A2.AllocationResult with
+          output = A2.AllocationResult_Settled with nextIterationAllocationCid = None
+          authorizerHoldingCids = holdingsByInstrument out
+          meta = M.emptyMetadata
+
+      allocation_cancelImpl self arg = do
+        now <- getTime
+        let byExecutors = all (`elem` arg.actors) settlement.executors
+        let byAdminAfterDeadline = admin `elem` arg.actors && (case spec.settlementDeadline of
+              Some d -> now >= d
+              None -> False)
+        assertMsg "only the executors can cancel (the admin only after the settlement deadline)" (byExecutors || byAdminAfterDeadline)
+        out <- forA lockedCids unlockForOwner
+        archive (fromInterfaceContractId @YapAllocationV2 self)
+        pure A2.AllocationResult with
+          output = A2.AllocationResult_Cancelled
+          authorizerHoldingCids = holdingsByInstrument out
+          meta = M.emptyMetadata
+
+      allocation_withdrawImpl self arg = do
+        assertMsg "only the authorizer can withdraw" (owner `elem` arg.actors)
+        now <- getTime
+        case (spec.committed, spec.settlementDeadline) of
+          (True, Some d) -> assertMsg "a committed allocation can only be withdrawn after its settlement deadline" (now >= d)
+          _ -> pure ()
+        out <- forA lockedCids unlockForOwner
+        archive (fromInterfaceContractId @YapAllocationV2 self)
+        pure A2.AllocationResult with
+          output = A2.AllocationResult_Withdrawn
+          authorizerHoldingCids = holdingsByInstrument out
+          meta = M.emptyMetadata
+
+    -- After the deadline the lock has expired, so the locked holding may already have been spent and Allocation_Withdraw would fail
+    -- on the missing holding. The owner can always drop an expired allocation with this choice.
+    choice YapAllocationV2_DiscardExpired : ()
+      controller owner
+      do
+        now <- getTime
+        case spec.settlementDeadline of
+          Some d -> assertMsg "the settlement deadline has not passed yet" (now >= d)
+          None -> abort "this allocation has no settlement deadline"
+        pure ()
+
+-- Settles a batch of V2 allocations of this admin: every transfer leg must be authorized by its sender AND its receiver, and the
+-- allocations must cover exactly the legs. Only then is each allocation settled (each pays out its own net result).
+template YapSettlementFactory
+  with
+    admin : Party
+  where
+    signatory admin
+
+    interface instance A2.SettlementFactory for YapSettlementFactory where
+      view = A2.SettlementFactoryView with admin = admin, meta = M.emptyMetadata
+
+      settlementFactory_settleBatchExtraObservers _arg = []
+
+      settlementFactory_publicFetchImpl _self _arg =
+        pure (A2.SettlementFactoryView with admin = admin, meta = M.emptyMetadata)
+
+      settlementFactory_settleBatchImpl _self arg = do
+        let settlement = arg.settlement
+        assertMsg "the settlement must be run by its executors" (all (`elem` arg.actors) settlement.executors)
+        assertMsg "at least one transfer leg is required" (not (null arg.transferLegs))
+        assertMsg "at least one allocation is required" (not (null arg.allocations))
+        let legIds = map (\l -> l.transferLegId) arg.transferLegs
+        assertMsg "duplicate transferLegId" (length (dedup legIds) == length legIds)
+        let allocCids = map (\f -> f.allocationCid) arg.allocations
+        assertMsg "the same allocation was given twice" (length (dedup allocCids) == length allocCids)
+        expected <- fmap concat $ forA arg.transferLegs $ \l -> do
+          assertMsg "wrong instrument" (l.instrumentId == yapSymbol)
+          assertMsg "amount must be positive" (l.amount > 0.0)
+          assertPrecision "amount" l.amount
+          s <- accountOwner "sender" l.sender
+          r <- accountOwner "receiver" l.receiver
+          pure
+            [ (s, A2.TransferLegSide with transferLegId = l.transferLegId, side = A2.SenderSide, otherside = l.receiver, amount = l.amount, instrumentId = l.instrumentId, meta = l.meta)
+            , (r, A2.TransferLegSide with transferLegId = l.transferLegId, side = A2.ReceiverSide, otherside = l.sender, amount = l.amount, instrumentId = l.instrumentId, meta = l.meta) ]
+        allocs <- forA arg.allocations $ \f -> do
+          assertMsg "iterated settlement is not supported" (null f.extraTransferLegSides && f.nextIterationFunding == None)
+          a <- fetch (fromInterfaceContractId @YapAllocationV2 f.allocationCid)
+          assertMsg "allocation admin mismatch" (a.admin == admin)
+          assertMsg "the allocation belongs to another settlement" (a.settlement == settlement)
+          pure a
+        let actual = [ (a.owner, s) | a <- allocs, s <- a.spec.transferLegSides ]
+        assertMsg "the allocations do not authorize exactly the transfer legs (both sides of every leg)" (sort expected == sort actual)
+        results <- forA arg.allocations $ \f ->
+          exercise f.allocationCid A2.Allocation_Settle with
+            actors = dedup (admin :: settlement.executors)
+            extraTransferLegSides = []
+            nextIterationFunding = None
+            extraArgs = arg.extraArgs
+        pure A2.SettlementFactory_SettleBatchResult with
+          allocationSettleResults = results
+          meta = M.emptyMetadata
 
 -- Settlement authority (cross-participant / cross-kind settlement) ---------------------------------------
 --

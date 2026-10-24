@@ -13,6 +13,8 @@ e4c73aa7ae73fb2fc330b938ffb99f568792321640ba4b9472902aa8d742c994 *splice-api-tok
 a18e85c4841a278bce000df8329c3f0e2fee3b30b55dd6a31492d10a72b4f9c1 *splice-api-token-burn-mint-v1-1.0.0.dar
 f044b34d7a28c2b6c8a540af720297d55450a889b451dc4eed64a9914f1d6b00 *splice-api-token-holding-v2-1.0.0.dar   (Token Standard V2 / CIP-0112, added 2026-10-20)
 720e766456b33abdd26bfc21e54d19413559f0a7ee52000e12d3b6c308199faa *splice-api-token-transfer-instruction-v2-1.0.0.dar   (added 2026-10-20, optional BurnMintFactory interface)
+e349d3a1952cdd52ed55333bef35e9ba40e6e0379521d65556c6aa2f50d9a1fd *splice-api-token-allocation-v2-1.0.0.dar   (added 2026-10-24, Allocation V2 + SettlementFactory)
+31de6be30385936105b24c8ea544bb25f6eede0d0c008154a11462bb6d14a17b *splice-api-token-allocation-instruction-v2-1.0.0.dar   (added 2026-10-24, AllocationFactory V2)
 ```
 
 The VPS scripts download the allocation DARs from the same location instead of shipping them.

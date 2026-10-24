@@ -5,10 +5,13 @@ module YapTokenTest where
 import Daml.Script
 import DA.Time
 import DA.Date
+import DA.Map qualified as Map
 import DA.TextMap qualified as TextMap
 import YapToken
 import Splice.Api.Token.AllocationInstructionV1 qualified as AI
 import Splice.Api.Token.AllocationV1 qualified as A
+import Splice.Api.Token.AllocationV2 qualified as A2
+import Splice.Api.Token.AllocationInstructionV2 qualified as AI2
 import Splice.Api.Token.BurnMintV1 qualified as BM
 import Splice.Api.Token.HoldingV1 qualified as H
 import Splice.Api.Token.HoldingV2 qualified as H2
@@ -1348,3 +1351,219 @@ testVestingFromTreasury = do
   expectBalance (balance w w.bob) 100.0 "the vested half stays with bob"
   expectBalance (balance w w.admin) 400.0 "the unvested half returns to the treasury"
   expectBalance (supplyAll w) 550.0 "supply unchanged after the revoke"
+
+-- ---------------------------------------------------------------------------------------------------------
+-- Allocation V2: multi-leg, net amount, committed, batch settlement
+
+settlementInfo : Party -> Text -> A2.SettlementInfo
+settlementInfo executor sid = A2.SettlementInfo with executors = [executor], id = sid, cid = None, meta = M.emptyMetadata
+
+legSide : Text -> A2.TransferSide -> Party -> Decimal -> A2.TransferLegSide
+legSide lid side other amount = A2.TransferLegSide with
+  transferLegId = lid, side, otherside = v2Account other, amount, instrumentId = "YAP", meta = M.emptyMetadata
+
+transferLeg : Text -> Party -> Party -> Decimal -> A2.TransferLeg
+transferLeg lid s r amount = A2.TransferLeg with
+  transferLegId = lid, sender = v2Account s, receiver = v2Account r, amount, instrumentId = "YAP", meta = M.emptyMetadata
+
+specV2 : World -> Party -> [A2.TransferLegSide] -> Optional Time -> Bool -> A2.AllocationSpecification
+specV2 w owner sides deadline committed = A2.AllocationSpecification with
+  admin = w.admin, authorizer = v2Account owner, transferLegSides = sides, settlementDeadline = deadline
+  nextIterationFunding = None, committed, meta = M.emptyMetadata
+
+allocateV2Cmd : World -> Time -> [Party] -> A2.SettlementInfo -> A2.AllocationSpecification -> [ContractId YapHolding] -> Commands AI2.AllocationInstructionResult
+allocateV2Cmd w now actors settlement spec inputs =
+  exerciseCmd (toInterfaceContractId @AI2.AllocationFactory w.af) AI2.AllocationFactory_Allocate with
+    settlement
+    allocation = spec
+    requestedAt = now
+    inputHoldingCids = map toInterfaceContractId inputs
+    extraArgs = noExtra
+    actors
+
+doAllocV2 : World -> Party -> A2.SettlementInfo -> [A2.TransferLegSide] -> Optional Time -> Bool -> [ContractId YapHolding] -> Script (ContractId A2.Allocation)
+doAllocV2 w owner settlement sides deadline committed inputs = do
+  now <- getTime
+  r <- submit (actAs owner <> disclose w.afD) (allocateV2Cmd w now [owner] settlement (specV2 w owner sides deadline committed) inputs)
+  case r.output of
+    AI2.AllocationInstructionResult_Completed c -> pure c
+    _ -> abort "expected a completed allocation"
+
+settleBatchCmd : ContractId YapSettlementFactory -> A2.SettlementInfo -> [A2.TransferLeg] -> [A2.FinalizedAllocation] -> [Party] -> Commands A2.SettlementFactory_SettleBatchResult
+settleBatchCmd sf settlement legs allocs actors =
+  exerciseCmd (toInterfaceContractId @A2.SettlementFactory sf) A2.SettlementFactory_SettleBatch with
+    settlement, transferLegs = legs, allocations = allocs, actors, extraArgs = noExtra
+
+fin : ContractId A2.Allocation -> A2.FinalizedAllocation
+fin c = A2.FinalizedAllocation with allocationCid = c, extraTransferLegSides = [], nextIterationFunding = None
+
+settleV2 : ContractId A2.Allocation -> [Party] -> Commands A2.AllocationResult
+settleV2 c actors = exerciseCmd c A2.Allocation_Settle with actors, extraTransferLegSides = [], nextIterationFunding = None, extraArgs = noExtra
+
+cancelV2 : ContractId A2.Allocation -> [Party] -> Commands A2.AllocationResult
+cancelV2 c actors = exerciseCmd c A2.Allocation_Cancel with actors, extraArgs = noExtra
+
+withdrawV2 : ContractId A2.Allocation -> [Party] -> Commands A2.AllocationResult
+withdrawV2 c actors = exerciseCmd c A2.Allocation_Withdraw with actors, extraArgs = noExtra
+
+-- alice pays 10 to bob (leg L1), bob pays 3 to alice (leg L2): alice's NET outflow is 7
+testV2NetSettlement : Script ()
+testV2NetSettlement = do
+  w <- setup
+  now <- getTime
+  ha <- mint w w.alice 100.0
+  hb <- mint w w.bob 50.0
+  sf <- submit w.admin do createCmd YapSettlementFactory with admin = w.admin
+  Some sfD <- queryDisclosure w.admin sf
+  let si = settlementInfo w.carol "dvp-1"
+  let deadline = Some (addRelTime now (days 1))
+  let legs = [transferLeg "L1" w.alice w.bob 10.0, transferLeg "L2" w.bob w.alice 3.0]
+  aliceAlloc <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 10.0, legSide "L2" A2.ReceiverSide w.bob 3.0] deadline False [ha]
+  expectBalance (balance w w.alice) 93.0 "only the NET outflow (7) is locked, the rest is change"
+  locked <- lockedOf w w.alice
+  assertMsg "exactly 7 locked for alice" (sum [ h.amount | (_, h) <- locked ] == 7.0)
+  -- bob receives more than he sends: nothing to lock, his holding is untouched
+  bobAlloc <- doAllocV2 w w.bob si [legSide "L1" A2.ReceiverSide w.alice 10.0, legSide "L2" A2.SenderSide w.alice 3.0] deadline False [hb]
+  expectBalance (balance w w.bob) 50.0 "bob locked nothing"
+  expectBalance (supplyAll w) 150.0 "locked funds are still supply"
+  -- views show what wallets need
+  views <- queryInterface @A2.Allocation w.alice
+  assertMsg "alice sees her allocation with one backing holding and the deadline" (case views of
+    [(_, Some v)] -> length v.holdingCids == 1 && v.expiresAt == deadline && v.numIterations == 0 && Map.member A2.AA_Withdraw v.availableActions
+    _ -> False)
+  -- only the executor (with the factory disclosed) settles
+  submitMustFail (actAs w.alice <> disclose sfD) (settleBatchCmd sf si legs [fin aliceAlloc, fin bobAlloc] [w.alice])
+  _ <- submit (actAs w.carol <> disclose sfD) (settleBatchCmd sf si legs [fin aliceAlloc, fin bobAlloc] [w.carol])
+  expectBalance (balance w w.alice) 93.0 "alice paid 10, got 3 (net 7 left her account)"
+  expectBalance (balance w w.bob) 57.0 "bob got 10, paid 3 (net 7 came in)"
+  expectBalance (supplyAll w) 150.0 "supply unchanged by the settlement"
+  stillLocked <- lockedOf w w.alice
+  assertMsg "nothing stays locked" (null stillLocked)
+  rest <- query @YapAllocationV2 w.admin
+  assertMsg "both allocations are consumed" (null rest)
+
+testV2SettleBatchGuards : Script ()
+testV2SettleBatchGuards = do
+  w <- setup
+  now <- getTime
+  ha <- mint w w.alice 100.0
+  hb <- mint w w.bob 50.0
+  sf <- submit w.admin do createCmd YapSettlementFactory with admin = w.admin
+  Some sfD <- queryDisclosure w.admin sf
+  let si = settlementInfo w.carol "dvp-2"
+  let deadline = Some (addRelTime now (days 1))
+  let legs = [transferLeg "L1" w.alice w.bob 10.0]
+  a <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 10.0] deadline False [ha]
+  b <- doAllocV2 w w.bob si [legSide "L1" A2.ReceiverSide w.alice 10.0] deadline False [hb]
+  let run ls fs ac = submitMustFail (actAs w.carol <> disclose sfD) (settleBatchCmd sf si ls fs ac)
+  run [transferLeg "L1" w.alice w.bob 11.0] [fin a, fin b] [w.carol]                    -- amount differs from the authorizations
+  run [] [fin a, fin b] [w.carol]                                                         -- no legs
+  run [transferLeg "L1" w.alice w.bob 10.0, transferLeg "L9" w.bob w.alice 1.0] [fin a, fin b] [w.carol]   -- a leg nobody authorized
+  run legs [fin a] [w.carol]                                                              -- the receiver side is missing
+  run legs [fin a, fin b, fin b] [w.carol]                                                -- the same allocation twice
+  run [transferLeg "L1" w.bob w.alice 10.0] [fin a, fin b] [w.carol]                    -- direction reversed
+  run [transferLeg "X1" w.alice w.bob 10.0] [fin a, fin b] [w.carol]                    -- another leg id
+  submitMustFail (actAs w.carol <> disclose sfD) (settleBatchCmd sf (settlementInfo w.carol "other") legs [fin a, fin b] [w.carol])   -- another settlement
+  submitMustFail (actAs w.carol <> disclose sfD) (settleBatchCmd sf si legs [((fin a) with extraTransferLegSides = [legSide "L2" A2.SenderSide w.bob 1.0]), fin b] [w.carol])
+  expectBalance (supplyAll w) 150.0 "nothing moved by the failed attempts"
+  -- the right one works
+  _ <- submit (actAs w.carol <> disclose sfD) (settleBatchCmd sf si legs [fin a, fin b] [w.carol])
+  expectBalance (balance w w.bob) 60.0 "bob got the 10"
+  expectBalance (supplyAll w) 150.0 "supply unchanged"
+
+testV2DirectSettleNeedsAdminAndExecutors : Script ()
+testV2DirectSettleNeedsAdminAndExecutors = do
+  w <- setup
+  now <- getTime
+  ha <- mint w w.alice 20.0
+  let si = settlementInfo w.carol "dvp-3"
+  a <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 5.0] (Some (addRelTime now (days 1))) False [ha]
+  submitMustFail w.carol (settleV2 a [w.carol])                  -- the admin is missing
+  submitMustFail w.alice (settleV2 a [w.alice])                  -- not the executor
+  submitMustFail w.admin (settleV2 a [w.admin])                  -- the executor is missing
+
+testV2NonCommittedWithdraw : Script ()
+testV2NonCommittedWithdraw = do
+  w <- setup
+  now <- getTime
+  ha <- mint w w.alice 20.0
+  let si = settlementInfo w.carol "wd-1"
+  a <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 5.0] (Some (addRelTime now (days 1))) False [ha]
+  submitMustFail w.bob (withdrawV2 a [w.bob])                    -- only the authorizer
+  submitMustFail w.carol (withdrawV2 a [w.carol])
+  _ <- submit w.alice (withdrawV2 a [w.alice])
+  expectBalance (balance w w.alice) 20.0 "funds released at once"
+  locked <- lockedOf w w.alice
+  assertMsg "nothing locked any more" (null locked)
+  rest <- query @YapAllocationV2 w.admin
+  assertMsg "allocation consumed" (null rest)
+
+testV2CommittedAllocation : Script ()
+testV2CommittedAllocation = do
+  w <- setup
+  now <- getTime
+  ha <- mint w w.alice 20.0
+  let si = settlementInfo w.carol "commit-1"
+  let deadline = addRelTime now (days 1)
+  a <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 5.0] (Some deadline) True [ha]
+  submitMustFail w.alice (withdrawV2 a [w.alice])                -- committed: no withdrawal before the deadline
+  submitMustFail w.bob (cancelV2 a [w.bob])                      -- cancel: executors only
+  submitMustFail (actAs [w.admin, w.alice]) (cancelV2 a [w.admin, w.alice])   -- the admin only after the deadline
+  _ <- submit w.carol (cancelV2 a [w.carol])                     -- the executor can always release it
+  expectBalance (balance w w.alice) 20.0 "cancel released the funds"
+  -- a second committed allocation: after the deadline the settlement is closed and the owner can withdraw
+  hs2 <- freeOf w w.alice
+  a2 <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 5.0] (Some (addRelTime now (days 2))) True (map fst hs2)
+  passTime (days 3)
+  submitMustFail w.carol (settleV2 a2 [w.admin, w.carol])
+  _ <- submit w.alice (withdrawV2 a2 [w.alice])
+  expectBalance (balance w w.alice) 20.0 "withdrawn after the deadline"
+
+testV2ExpiredAllocationCanBeDiscarded : Script ()
+testV2ExpiredAllocationCanBeDiscarded = do
+  w <- setup
+  now <- getTime
+  ha <- mint w w.alice 20.0
+  let si = settlementInfo w.carol "disc-1"
+  a <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 5.0] (Some (addRelTime now (hours 2))) False [ha]
+  let aV2 = fromInterfaceContractId @YapAllocationV2 a
+  submitMustFail w.alice do exerciseCmd aV2 YapAllocationV2_DiscardExpired          -- not expired yet
+  passTime (hours 3)
+  -- the lock has expired, so the owner may have spent the locked funds: the allocation can still be dropped
+  [(l, _)] <- lockedOf w w.alice
+  _ <- submit w.alice do exerciseCmd l YapHolding_Burn
+  submitMustFail w.alice (withdrawV2 a [w.alice])                -- the backing holding is gone
+  submit w.alice do exerciseCmd aV2 YapAllocationV2_DiscardExpired
+  rest <- query @YapAllocationV2 w.admin
+  assertMsg "allocation dropped" (null rest)
+
+testV2AllocationGuards : Script ()
+testV2AllocationGuards = do
+  w <- setup
+  now <- getTime
+  ha <- mint w w.alice 100.0
+  let si = settlementInfo w.carol "g-1"
+  let deadline = Some (addRelTime now (days 1))
+  let ok1 = [legSide "L1" A2.SenderSide w.bob 10.0]
+  let tryIt actors settlement spec = submitMustFail (actAs w.alice <> disclose w.afD) (allocateV2Cmd w now actors settlement spec [ha])
+  tryIt [w.alice] si ((specV2 w w.alice ok1 deadline False) with admin = w.bob)                     -- wrong admin
+  tryIt [w.alice] si (specV2 w w.alice [((legSide "L1" A2.SenderSide w.bob 10.0) with instrumentId = "OTHER")] deadline False)
+  tryIt [w.alice] si (specV2 w w.alice [legSide "L1" A2.SenderSide w.bob 0.0] deadline False)       -- zero
+  tryIt [w.alice] si (specV2 w w.alice [legSide "L1" A2.SenderSide w.bob 0.0000001] deadline False) -- 7 decimals
+  tryIt [w.alice] si (specV2 w w.alice [legSide "L1" A2.SenderSide w.bob 1.0, legSide "L1" A2.SenderSide w.carol 1.0] deadline False)  -- duplicate leg id
+  tryIt [w.alice] si (specV2 w w.alice ok1 (Some (addRelTime now (seconds (-5)))) False)            -- deadline in the past
+  tryIt [w.alice] si (specV2 w w.alice ok1 None True)                                               -- committed without a deadline
+  tryIt [w.alice] si ((specV2 w w.alice ok1 deadline False) with nextIterationFunding = Some TextMap.empty)   -- iterated settlement
+  tryIt [w.alice] si (specV2 w w.alice [] deadline False)                                           -- no legs
+  tryIt [w.alice] si (specV2 w w.alice [legSide "L1" A2.SenderSide w.alice 5.0] deadline False)      -- to herself
+  tryIt [w.alice] si ((specV2 w w.alice ok1 deadline False) with authorizer = ((v2Account w.alice) with provider = Some w.admin))   -- not a plain account
+  tryIt [w.alice] (si with executors = []) (specV2 w w.alice ok1 deadline False)                    -- no executor
+  tryIt [w.bob] si (specV2 w w.alice ok1 deadline False)                                            -- the authorizer is not among the actors
+  tryIt [w.alice] si (specV2 w w.alice [legSide "L1" A2.SenderSide w.bob 101.0] deadline False)     -- more than the inputs hold
+  expectBalance (balance w w.alice) 100.0 "nothing moved"
+  -- and a plain one goes through
+  r <- submit (actAs w.alice <> disclose w.afD) (allocateV2Cmd w now [w.alice] si (specV2 w w.alice ok1 deadline False) [ha])
+  assertMsg "completed" (case r.output of
+    AI2.AllocationInstructionResult_Completed _ -> True
+    _ -> False)
+  assertMsg "change returned in the result" (not (TextMap.null r.authorizerChangeCids))

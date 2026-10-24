@@ -7,11 +7,13 @@ dependencies:
   - daml-stdlib
   - daml-script
 data-dependencies:
-  - ../yap-governance/.daml/dist/yap-governance-0.4.0.dar
-  - ../yap-token/.daml/dist/yap-token-0.8.0.dar
+  - ../yap-governance/.daml/dist/yap-governance-0.5.0.dar
+  - ../yap-token/.daml/dist/yap-token-0.9.0.dar
   - ../yap-governance/dars/governance-action-v1-0.1.0.dar
   - ../yap-token/dars/splice-api-token-allocation-instruction-v1-1.0.0.dar
   - ../yap-token/dars/splice-api-token-allocation-v1-1.0.0.dar
+  - ../yap-token/dars/splice-api-token-allocation-v2-1.0.0.dar
+  - ../yap-token/dars/splice-api-token-allocation-instruction-v2-1.0.0.dar
   - ../yap-token/dars/splice-api-token-burn-mint-v1-1.0.0.dar
   - ../yap-token/dars/splice-api-token-holding-v1-1.0.0.dar
   - ../yap-token/dars/splice-api-token-holding-v2-1.0.0.dar

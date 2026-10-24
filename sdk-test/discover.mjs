@@ -6,7 +6,7 @@ import { getToken, env, need } from "../scripts/lib.mjs";
 
 const admin = need("CUSDT_ADMIN_PARTY");
 const suffix = admin.split("::")[1];
-const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
+const ALICE = need("CUSDT_ALICE"), BOB = need("CUSDT_BOB");
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 
 const token = await getToken();

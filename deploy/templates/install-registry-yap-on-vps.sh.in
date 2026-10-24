@@ -22,7 +22,7 @@ node --check $D/server.mjs && echo "syntax ok"
 # env: everything about the ledger/Keycloak is copied from the cUSDT registry; only port, admin, package and V2 differ
 ( umask 077
   grep -E '^(LEDGER_URL|KC_TOKEN_URL|KC_CLIENT_ID|KC_CLIENT_SECRET|KC_SCOPE|NODE_TLS_REJECT_UNAUTHORIZED)=' $OLDENV > $ENVF
-  printf 'HOST=127.0.0.1\nPORT=8788\nCUSDT_ADMIN_PARTY=%s\nCUSDT_PACKAGE_NAME=#yap-token\nCUSDT_ENABLE_V2=1\n' "$ADMIN" >> $ENVF )
+  printf 'HOST=127.0.0.1\nPORT=8788\nCUSDT_ADMIN_PARTY=%s\nCUSDT_PACKAGE_NAME=#yap-token\nCUSDT_ENABLE_V2=1\nCUSDT_ENABLE_ALLOCATION_V2=1\n' "$ADMIN" >> $ENVF )
 chmod 600 $ENVF; chown root:root $ENVF
 grep -q KC_CLIENT_SECRET= $ENVF || { echo "no KC_CLIENT_SECRET copied, check $OLDENV"; exit 1; }
 

@@ -36,6 +36,7 @@ Not implemented: Allocation V2; the application mechanics of the tokenomics (sta
 | `sdk-test/` | Official Wallet SDK flows |
 | `deploy/` | `node deploy/generate.mjs` writes paste-able VPS scripts to `deploy/out/` from `templates/` |
 | `docs/PARTNER-GUIDE.md` | Guide for an independent co-signer |
+| `docs/TESTING.md` | What has been tested, the results, and what has not |
 
 ## Build, test, deploy
 

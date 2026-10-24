@@ -12,7 +12,7 @@
 -- The day-to-day power stays with the operator (see YapOperatorAuthority); these are the rare, governed decisions.
 module YapGovernance where
 
-import DA.Foldable (forA_)
+import DA.Foldable (forA_, foldlA)
 import DA.TextMap qualified as TextMap
 import YapToken
 import Governance.Action
@@ -272,4 +272,62 @@ template TreasuryTransferProposal
           extraArgs = M.ExtraArgs with
             context = M.ChoiceContext with values = TextMap.empty
             meta = M.emptyMetadata
+        pure ()
+
+-- Allocation of the treasury in ONE governed decision (e.g. the tokenomics schedule): a list of immediate releases (TGE shares) and
+-- vesting grants, all paid out of the governance party's own treasury holdings, in order. The change of every step feeds the next one,
+-- so no input is used twice, and the whole thing is atomic (if any item fails, nothing happens). No tokens are created: the supply is
+-- unchanged. A release gives the receiver a normal holding at once (the governance party issues it itself, no accept step), a vest item
+-- creates the locked holding + schedule exactly like YapAdmin_GrantVesting.
+data AllocationItem
+  = ReleaseItem with
+      receiver    : Party
+      amount      : Decimal
+  | VestItem with
+      beneficiary : Party
+      amount      : Decimal
+      start       : Time
+      cliff       : Time
+      finish      : Time
+      revocable   : Bool
+  deriving (Eq, Show)
+
+itemAmount : AllocationItem -> Decimal
+itemAmount (ReleaseItem _ a) = a
+itemAmount (VestItem _ a _ _ _ _) = a
+
+validItem : Party -> AllocationItem -> Bool
+validItem gov (ReleaseItem r a) = a > 0.0 && r /= gov
+validItem gov (VestItem b a s c f _) = a > 0.0 && b /= gov && s < f && s <= c && c <= f
+
+template AllocationProposal
+  with
+    governanceParty : Party
+    proposer        : Party
+    treasuryCids    : [ContractId YapHolding]
+    items           : [AllocationItem]
+    purpose         : Text
+  where
+    signatory proposer
+    observer governanceParty
+    ensure not (null treasuryCids) && not (null items) && purpose /= "" && all (validItem governanceParty) items
+
+    interface instance GovernableAction for AllocationProposal where
+      view = GovernableActionView with
+        governanceParty
+        proposer
+        actionLabel = "YapAllocate"
+        description = purpose <> ": " <> show (sum (map itemAmount items)) <> " YAP in " <> show (length items) <> " item(s)"
+      executeImpl = do
+        let step cur item = case item of
+              ReleaseItem receiver amount -> do
+                assertPrecision "release amount" amount
+                change <- spendInputsT governanceParty governanceParty amount cur
+                _ <- create YapHolding with admin = governanceParty, owner = receiver, amount, lock = None
+                pure change
+              VestItem beneficiary amount start cliff finish revocable -> do
+                change <- spendInputsT governanceParty governanceParty amount cur
+                _ <- grantVesting governanceParty beneficiary amount start cliff finish revocable
+                pure change
+        _ <- foldlA step treasuryCids items
         pure ()

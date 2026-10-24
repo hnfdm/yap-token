@@ -53,6 +53,18 @@ for a in json.load(sys.stdin).get("domain_actions",[]): print(json.dumps(a))' | 
       if [ "$1" = confirm-all ]; then
         if echo "$A" | grep -q "\"confirming_party\": \"$ME\""; then echo "skip (already confirmed): $LBL"; continue; fi
         echo "CONFIRM $LBL :: $DESC"
+        if [ "$LBL" = YapAllocate ]; then echo "$A" | python3 -c 'import sys,json
+a=json.load(sys.stdin); pl=a.get("proposal_payload") or {}
+args=pl.get("create_arguments", pl)
+items=args.get("items", [])
+print("   proposal payload: %d item(s), treasury inputs: %s" % (len(items), len(args.get("treasuryCids", []))))
+tot=0.0
+for i in items:
+    v=i.get("value", i) if isinstance(i, dict) else i
+    amt=float(v.get("amount", 0)); tot+=amt
+    who=v.get("receiver") or v.get("beneficiary")
+    print("   - %-8s %16s YAP  -> %s  start=%s finish=%s" % ("release" if "receiver" in v else "vest", format(amt, ",.2f"), str(who).split("::")[0], v.get("start","-"), v.get("finish","-")))
+print("   TOTAL %s YAP" % format(tot, ",.2f"))'; fi
         BODY=$(python3 - "$DEC" "$RULES" "$(pj "$A" proposal_cid)" <<'PY'
 import json,sys
 print(json.dumps({"party_id":sys.argv[1],"rules_contract_id":sys.argv[2],"action":{"type":"governance_set_threshold","new_threshold":0},"governance_type":"core_domain","proposal_cid":sys.argv[3]}))

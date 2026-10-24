@@ -218,6 +218,60 @@ testFixedSupplyTreasury = do
   submitMustFail w.member do createCmd TreasuryTransferProposal with governanceParty = w.gov, proposer = w.member, factoryCid = tf, receiver = w.gov, amount = 1.0, treasuryCids = [rest], executeBefore = addRelTime now (days 1)
   submitMustFail w.member do createCmd TreasuryTransferProposal with governanceParty = w.gov, proposer = w.member, factoryCid = tf, receiver = w.op, amount = 0.0, treasuryCids = [rest], executeBefore = addRelTime now (days 1)
 
+testAllocationProposal : Script ()
+testAllocationProposal = do
+  w <- setup
+  now <- getTime
+  t1 <- submit w.gov do createCmd YapHolding with admin = w.gov, owner = w.gov, amount = 600.0, lock = None
+  t2 <- submit w.gov do createCmd YapHolding with admin = w.gov, owner = w.gov, amount = 400.0, lock = None
+  let supply = do
+        hs <- query @YapHolding w.gov
+        pure (sum [ h.amount | (_, h) <- hs ])
+  let mk items cids = submit w.member do
+        createCmd AllocationProposal with governanceParty = w.gov, proposer = w.member, treasuryCids = cids, items, purpose = "test allocation"
+  let release r a = ReleaseItem with receiver = r, amount = a
+  let vest b a s f = VestItem with beneficiary = b, amount = a, start = s, cliff = s, finish = f, revocable = False
+  -- guards at proposal creation
+  submitMustFail w.member do createCmd AllocationProposal with governanceParty = w.gov, proposer = w.member, treasuryCids = [t1], items = [], purpose = "x"
+  submitMustFail w.member do createCmd AllocationProposal with governanceParty = w.gov, proposer = w.member, treasuryCids = [], items = [release w.op 1.0], purpose = "x"
+  submitMustFail w.member do createCmd AllocationProposal with governanceParty = w.gov, proposer = w.member, treasuryCids = [t1], items = [release w.op 0.0], purpose = "x"
+  submitMustFail w.member do createCmd AllocationProposal with governanceParty = w.gov, proposer = w.member, treasuryCids = [t1], items = [release w.gov 1.0], purpose = "x"
+  submitMustFail w.member do createCmd AllocationProposal with governanceParty = w.gov, proposer = w.member, treasuryCids = [t1], items = [vest w.alice 5.0 (addRelTime now (days 5)) (addRelTime now (days 1))], purpose = "x"
+  submitMustFail w.member do createCmd AllocationProposal with governanceParty = w.gov, proposer = w.member, treasuryCids = [t1], items = [release w.op 1.0], purpose = ""
+  -- more than the treasury holds: refused, nothing moves
+  pBig <- mk [release w.op 600.0, vest w.alice 400.01 now (addRelTime now (days 10))] [t1, t2]
+  executeFails w.gov pBig
+  s0 <- supply
+  assertMsg "nothing moved after the failed allocation" (s0 == 1000.0)
+  -- somebody else's holding among the inputs: refused
+  foreign <- submit w.gov do createCmd YapHolding with admin = w.gov, owner = w.alice, amount = 50.0, lock = None
+  pForeign <- mk [release w.op 10.0] [foreign]
+  executeFails w.gov pForeign
+  -- the real allocation: one immediate release, two vesting grants (one with a cliff in the future); 200 stays in the treasury
+  p <- mk [ release w.op 100.0
+          , vest w.alice 300.0 now (addRelTime now (days 10))
+          , vest w.other 400.0 (addRelTime now (days 1)) (addRelTime now (days 11)) ] [t1, t2]
+  executeFails w.member p
+  execute w.gov p
+  s1 <- supply
+  assertMsg ("supply unchanged by the allocation, got " <> show s1) (s1 == 1050.0)
+  hs <- query @YapHolding w.gov
+  assertMsg "op got 100 at once" (sum [ h.amount | (_, h) <- hs, h.owner == w.op, h.lock == None ] == 100.0)
+  assertMsg "alice has 300 locked" (sum [ h.amount | (_, h) <- hs, h.owner == w.alice, h.lock /= None ] == 300.0)
+  assertMsg "other has 400 locked" (sum [ h.amount | (_, h) <- hs, h.owner == w.other, h.lock /= None ] == 400.0)
+  assertMsg "the treasury kept 200" (sum [ h.amount | (_, h) <- hs, h.owner == w.gov ] == 200.0)
+  vs <- query @YapVesting w.gov
+  assertMsg "two vesting schedules" (length vs == 2)
+  -- the vesting behaves: nothing for the cliff-delayed one before its cliff, about half for alice after 5 days
+  passTime (hours 12)
+  [(otherV, _)] <- pure [ (c, v) | (c, v) <- vs, v.beneficiary == w.other ]
+  submitMustFail w.other do exerciseCmd otherV YapVesting_Claim
+  [(aliceV, _)] <- pure [ (c, v) | (c, v) <- vs, v.beneficiary == w.alice ]
+  passTime (days 5)
+  (got, _) <- submit w.alice do exerciseCmd aliceV YapVesting_Claim
+  Some g <- queryContractId w.gov got
+  assertMsg ("alice claimed about half, got " <> show g.amount) (g.amount > 140.0 && g.amount < 160.0)
+
 -- helper: appoint through the governor-direct choice (the governed path is tested separately)
 appoint : W -> Decimal -> Script (ContractId YapOperatorAuthority)
 appoint w al = do

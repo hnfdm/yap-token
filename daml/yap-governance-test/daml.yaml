@@ -7,7 +7,7 @@ dependencies:
   - daml-stdlib
   - daml-script
 data-dependencies:
-  - ../yap-governance/.daml/dist/yap-governance-0.3.0.dar
+  - ../yap-governance/.daml/dist/yap-governance-0.4.0.dar
   - ../yap-token/.daml/dist/yap-token-0.8.0.dar
   - ../yap-governance/dars/governance-action-v1-0.1.0.dar
   - ../yap-token/dars/splice-api-token-allocation-instruction-v1-1.0.0.dar

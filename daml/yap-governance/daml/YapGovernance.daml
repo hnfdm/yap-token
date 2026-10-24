@@ -12,7 +12,7 @@
 -- The day-to-day power stays with the operator (see YapOperatorAuthority); these are the rare, governed decisions.
 module YapGovernance where
 
-import DA.Foldable (forA_, foldlA)
+import DA.Foldable (forA_)
 import DA.TextMap qualified as TextMap
 import YapToken
 import Governance.Action
@@ -300,6 +300,22 @@ validItem : Party -> AllocationItem -> Bool
 validItem gov (ReleaseItem r a) = a > 0.0 && r /= gov
 validItem gov (VestItem b a s c f _) = a > 0.0 && b /= gov && s < f && s <= c && c <= f
 
+-- Pays the items out one after the other; the change of each step is the input of the next one.
+payOut : Party -> [ContractId YapHolding] -> [AllocationItem] -> Update [ContractId YapHolding]
+payOut _ cur [] = pure cur
+payOut gov cur (item :: rest) = do
+  change <- case item of
+    ReleaseItem receiver amount -> do
+      assertPrecision "release amount" amount
+      c <- spendInputsT gov gov amount cur
+      _ <- create YapHolding with admin = gov, owner = receiver, amount, lock = None
+      pure c
+    VestItem beneficiary amount start cliff finish revocable -> do
+      c <- spendInputsT gov gov amount cur
+      _ <- grantVesting gov beneficiary amount start cliff finish revocable
+      pure c
+  payOut gov change rest
+
 template AllocationProposal
   with
     governanceParty : Party
@@ -319,15 +335,5 @@ template AllocationProposal
         actionLabel = "YapAllocate"
         description = purpose <> ": " <> show (sum (map itemAmount items)) <> " YAP in " <> show (length items) <> " item(s)"
       executeImpl = do
-        let step cur item = case item of
-              ReleaseItem receiver amount -> do
-                assertPrecision "release amount" amount
-                change <- spendInputsT governanceParty governanceParty amount cur
-                _ <- create YapHolding with admin = governanceParty, owner = receiver, amount, lock = None
-                pure change
-              VestItem beneficiary amount start cliff finish revocable -> do
-                change <- spendInputsT governanceParty governanceParty amount cur
-                _ <- grantVesting governanceParty beneficiary amount start cliff finish revocable
-                pure change
-        _ <- foldlA step treasuryCids items
+        _ <- payOut governanceParty treasuryCids items
         pure ()

@@ -1601,6 +1601,7 @@ testV2BatchRefusesAfterTheDeadline = do
 testV2BatchRefusesAllocationsOfAnotherAdmin : Script ()
 testV2BatchRefusesAllocationsOfAnotherAdmin = do
   w <- setup
+  other <- allocateParty "other"
   now <- getTime
   hb <- mint w w.bob 20.0
   sf <- submit w.admin do createCmd YapSettlementFactory with admin = w.admin
@@ -1609,9 +1610,9 @@ testV2BatchRefusesAllocationsOfAnotherAdmin = do
   let deadline = Some (addRelTime now (days 1))
   b <- doAllocV2 w w.bob si [legSide "L1" A2.SenderSide w.alice 5.0] deadline False [hb]
   -- an allocation that covers the other side of the leg, but for ANOTHER admin's token
-  let foreignSpec = (specV2 w w.alice [legSide "L1" A2.ReceiverSide w.bob 5.0] deadline False) with admin = w.other
-  f <- submit (actAs [w.other, w.alice]) do
-    createCmd YapAllocationV2 with admin = w.other, owner = w.alice, settlement = si, spec = foreignSpec, lockedCids = [], createdAt = now
+  let foreignSpec = (specV2 w w.alice [legSide "L1" A2.ReceiverSide w.bob 5.0] deadline False) with admin = other
+  f <- submit (actAs [other, w.alice]) do
+    createCmd YapAllocationV2 with admin = other, owner = w.alice, settlement = si, spec = foreignSpec, lockedCids = [], createdAt = now
   let fa = toInterfaceContractId @A2.Allocation f
   submitMustFail (actAs w.carol <> disclose sfD) (settleBatchCmd sf si [transferLeg "L1" w.bob w.alice 5.0] [fin b, fin fa] [w.carol])
   expectBalance (supplyAll w) 20.0 "nothing moved"

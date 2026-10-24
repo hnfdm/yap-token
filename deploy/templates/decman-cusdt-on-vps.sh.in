@@ -3,10 +3,11 @@
 # Put yap-token-@@VERSION@@.dar and yap-governance-0.5.0.dar into /opt/decman/dars/ on t1 first (SFTP), then:
 #   t1:  bash decman-cusdt-on-vps.sh dars        t2:  bash decman-cusdt-on-vps.sh accept-dars
 #   t1:  bash decman-cusdt-on-vps.sh contracts   t2:  bash decman-cusdt-on-vps.sh accept-contracts
+#   after an upgrade: contracts-v2 (only the Allocation V2 factories) instead of contracts
 #   either: bash decman-cusdt-on-vps.sh status
 set -uo pipefail
 . /opt/decman/api.sh
-TOKEN_SHA=f0a01ef85b4be4126f269dee46922a3c7ca991bcc03b6256917d2178ac304d88
+TOKEN_SHA=272af9dc81d486412099b71cf65e47cc462de1e47c4f2682c7ca1bea441cdaa3
 GOV_SHA=ccfd028df55e7714b950cc49352301fef8a33878dc4999e386e78f4bf0fab936
 DEC=cusdt-gov::12205fb8f032bfcfe6ae4ae3a7625629fe9065668ee529e3a785691e1cdce5022c2b
 P1=cryptolampung-testnet-1::122013397e0d9bb71891e884ccd6948a93057115a2fd46a5cf2e4db254844bbd0ea1
@@ -46,9 +47,21 @@ print(json.dumps({"decentralized_party_id":dec,"participant_ids":[p1,p2],"partic
 PY
 )
     api POST /contracts "$BODY" | cut -c1-600 ;;
+  contracts-v2)
+    # after a yap-token upgrade: ONLY the two singletons that carry the Allocation V2 code (the old ones keep running 0.8.0 code).
+    # The old YapAllocationFactory can stay: the registry always picks the newest one.
+    BODY=$(python3 - "$DEC" "$P1" "$P2" "$OPPARTY" <<'PY'
+import json,sys
+dec,p1,p2,op=sys.argv[1:5]
+c=lambda i,n:{"id":i,"name":n,"package_id":"#yap-token","module_name":"YapToken","entity_name":n,"fields":[{"type":"decentralized_party"}]}
+print(json.dumps({"decentralized_party_id":dec,"participant_ids":[p1,p2],"participant_parties":[p1,p2],"operator_party":op,
+ "contracts":[c("yap-allocation-factory-v2","YapAllocationFactory"),c("yap-settlement-factory","YapSettlementFactory")]}))
+PY
+)
+    api POST /contracts "$BODY" | cut -c1-600 ;;
   accept-contracts) accept Contracts ;;
   status) api GET /workflows | python3 -c 'import sys,json
 t=sys.stdin.read().rsplit("\nHTTP",1)[0]; j=json.loads(t)
 for r in j["runs"]: print(r["instance_name"],r["kind"],r["role"],r["status"],r.get("current_step"),r.get("error",""))' ;;
-  *) echo "usage: $0 dars|accept-dars|contracts|accept-contracts|status"; exit 1 ;;
+  *) echo "usage: $0 dars|accept-dars|contracts|contracts-v2|accept-contracts|status"; exit 1 ;;
 esac

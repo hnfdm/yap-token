@@ -1572,3 +1572,46 @@ testV2AllocationGuards = do
     AI2.AllocationInstructionResult_Completed _ -> True
     _ -> False)
   assertMsg "change returned in the result" (not (TextMap.null r.authorizerChangeCids))
+
+-- closes two gaps that mutation testing would otherwise report: the deadline in a batch settlement, and an allocation of another admin
+testV2BatchRefusesAfterTheDeadline : Script ()
+testV2BatchRefusesAfterTheDeadline = do
+  w <- setup
+  now <- getTime
+  ha <- mint w w.alice 20.0
+  hb <- mint w w.bob 20.0
+  sf <- submit w.admin do createCmd YapSettlementFactory with admin = w.admin
+  Some sfD <- queryDisclosure w.admin sf
+  let si = settlementInfo w.carol "late-1"
+  let legs = [transferLeg "L1" w.alice w.bob 5.0]
+  a <- doAllocV2 w w.alice si [legSide "L1" A2.SenderSide w.bob 5.0] (Some (addRelTime now (hours 1))) False [ha]
+  b <- doAllocV2 w w.bob si [legSide "L1" A2.ReceiverSide w.alice 5.0] (Some (addRelTime now (hours 1))) False [hb]
+  passTime (hours 2)
+  submitMustFail (actAs w.carol <> disclose sfD) (settleBatchCmd sf si legs [fin a, fin b] [w.carol])
+  expectBalance (supplyAll w) 40.0 "nothing moved"
+  -- the same settlement inside its window works (the test is not vacuous)
+  now2 <- getTime
+  [(ha2, _)] <- freeOf w w.alice
+  let si2 = settlementInfo w.carol "late-2"
+  a2 <- doAllocV2 w w.alice si2 [legSide "L1" A2.SenderSide w.bob 5.0] (Some (addRelTime now2 (days 1))) False [ha2]
+  b2 <- doAllocV2 w w.bob si2 [legSide "L1" A2.ReceiverSide w.alice 5.0] (Some (addRelTime now2 (days 1))) False []
+  _ <- submit (actAs w.carol <> disclose sfD) (settleBatchCmd sf si2 legs [fin a2, fin b2] [w.carol])
+  expectBalance (balance w w.bob) 25.0 "bob got the 5 inside the window (20 + 5)"
+
+testV2BatchRefusesAllocationsOfAnotherAdmin : Script ()
+testV2BatchRefusesAllocationsOfAnotherAdmin = do
+  w <- setup
+  now <- getTime
+  hb <- mint w w.bob 20.0
+  sf <- submit w.admin do createCmd YapSettlementFactory with admin = w.admin
+  Some sfD <- queryDisclosure w.admin sf
+  let si = settlementInfo w.carol "foreign-1"
+  let deadline = Some (addRelTime now (days 1))
+  b <- doAllocV2 w w.bob si [legSide "L1" A2.SenderSide w.alice 5.0] deadline False [hb]
+  -- an allocation that covers the other side of the leg, but for ANOTHER admin's token
+  let foreignSpec = (specV2 w w.alice [legSide "L1" A2.ReceiverSide w.bob 5.0] deadline False) with admin = w.other
+  f <- submit (actAs [w.other, w.alice]) do
+    createCmd YapAllocationV2 with admin = w.other, owner = w.alice, settlement = si, spec = foreignSpec, lockedCids = [], createdAt = now
+  let fa = toInterfaceContractId @A2.Allocation f
+  submitMustFail (actAs w.carol <> disclose sfD) (settleBatchCmd sf si [transferLeg "L1" w.bob w.alice 5.0] [fin b, fin fa] [w.carol])
+  expectBalance (supplyAll w) 20.0 "nothing moved"

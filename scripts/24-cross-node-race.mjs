@@ -51,7 +51,7 @@ ok("setup: delegation in place", !!authority);
 async function carolAllocates() {
   const hs = (await mine(mzf, CAROL)).sort((a, b) => Number(b.createArgument.amount) - Number(a.createArgument.amount));
   const spec = { settlement: { executor: admin, settlementRef: { id: REF, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(3_600_000), settleBefore: iso(7_200_000), meta: { values: {} } },
-    transferLegId: `leg-${Date.now()}`, transferLeg: { sender: CAROL, receiver: ALICE, amount: amt(1), instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } };
+    transferLegId: `leg-${Date.now()}`, transferLeg: { sender: CAROL, receiver: ALICE, amount: amt(1), instrumentId: { admin, id: "YAP" }, meta: { values: {} } } };
   const args = { expectedAdmin: admin, allocation: spec, requestedAt: iso(-30_000), inputHoldingCids: [hs[0].contractId] };
   const f = await regPost("/registry/allocation-instruction/v1/allocation-factory", { choiceArguments: args });
   await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.AF, contractId: f.factoryId, choice: "AllocationFactory_Allocate", choiceArgument: { ...args, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
@@ -86,7 +86,7 @@ console.log(`outcomes: execute won ${executed}, withdraw won ${withdrawn}, both 
 await ours.tx([ALICE], [{ ExerciseCommand: { templateId: AUTH, contractId: authority.contractId, choice: "CusdtSettlement_RevokeByReceiver", choiceArgument: {} } }]).catch((e) => console.log("revoke failed: " + short(e).slice(-120)));
 { const hs = await mine(mzf, CAROL); const total = sumH(hs);
   if (total > 0) {
-    const t = { sender: CAROL, receiver: ALICE, amount: amt(total), instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: hs.map((h) => h.contractId), meta: { values: {} } };
+    const t = { sender: CAROL, receiver: ALICE, amount: amt(total), instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: hs.map((h) => h.contractId), meta: { values: {} } };
     const f = await regPost("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: t } });
     await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.TF, contractId: f.factoryId, choice: "TransferFactory_Transfer", choiceArgument: { expectedAdmin: admin, transfer: t, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
     const seen = (await waitFor(async () => (await ours.acs(ALICE, T.INSTR)).find((i) => i.createArgument.transfer.sender === CAROL))).v;

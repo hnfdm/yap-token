@@ -74,7 +74,7 @@ try {
   ok("minted exactly N holdings", minted.length === N);
 
   // 2. one offer per holding, 50 per tx
-  const tr = (cid) => ({ sender: ALICE, receiver: BOB, amount: amt(1), instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(7_200_000), inputHoldingCids: [cid], meta: { values: {} } });
+  const tr = (cid) => ({ sender: ALICE, receiver: BOB, amount: amt(1), instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(7_200_000), inputHoldingCids: [cid], meta: { values: {} } });
   const f = await post("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: tr(minted[0]) } });
   ok("registry answers `offer`", f.transferKind === "offer", f.transferKind);
   const t1 = Date.now();

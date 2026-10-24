@@ -75,7 +75,7 @@ catch (e) { ok("SDK list with continueUntilCompletion returns everything", false
 // ---- spend all 250 in ONE transaction ----------------------------------------------------------
 let bigOk = false;
 try {
-  const t = { sender: DUST, receiver: ALICE, amount: "0.0002500000", instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: cids, meta: { values: {} } };
+  const t = { sender: DUST, receiver: ALICE, amount: "0.0002500000", instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: cids, meta: { values: {} } };
   const f = await (await fetch(`${REGISTRY}/registry/transfer-instruction/v1/transfer-factory`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: t } }) })).json();
   const r = await tx([DUST], [{ ExerciseCommand: { templateId: IF_TF, contractId: f.factoryId, choice: "TransferFactory_Transfer",
     choiceArgument: { expectedAdmin: admin, transfer: t, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);

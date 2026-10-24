@@ -12,7 +12,7 @@ const KC_SECRET  = process.env.KC_CLIENT_SECRET ?? "";
 const KC_SCOPE   = process.env.KC_SCOPE ?? "daml_ledger_api";
 const ADMIN      = process.env.CUSDT_ADMIN_PARTY ?? "";
 const PKG        = process.env.CUSDT_PACKAGE_NAME ?? "#cusdt-token";
-const SYMBOL     = "cUSDT";
+const SYMBOL     = "YAP";
 
 const SUPPORTED_APIS = {
   "splice-api-token-metadata-v1": 1,
@@ -29,7 +29,7 @@ if (ENABLE_V2) {
 }
 
 const INSTRUMENT = {
-  id: SYMBOL, name: "cUSDT (test)", symbol: SYMBOL, decimals: 6,
+  id: SYMBOL, name: "YAP (test)", symbol: SYMBOL, decimals: 6,
   paused: false, supportedApis: SUPPORTED_APIS,
 };
 

@@ -1321,3 +1321,30 @@ testAppointOperatorGuards = do
     exerciseCmd adm CusdtAdmin_AppointOperator with operator = w.carol, allowance = 1.0, validUntil = addRelTime now (days 1)
   os <- query @CusdtOperatorAuthority w.admin
   assertMsg "no authority was created" (null os)
+
+-- fixed-supply vesting: funded from the admin's own holdings, nothing is minted
+testVestingFromTreasury : Script ()
+testVestingFromTreasury = do
+  w <- setup
+  adm <- vestAdmin w
+  now <- getTime
+  t <- mint w w.admin 500.0
+  other <- mint w w.alice 50.0
+  let grant who cids amt = submitMustFail who do
+        exerciseCmd adm CusdtAdmin_GrantVestingFromTreasury with beneficiary = w.bob, amount = amt, start = now, cliff = now, finish = addRelTime now (days 10), revocable = True, treasuryCids = cids
+  grant w.bob [t] 10.0                 -- only the admin
+  grant w.admin [other] 10.0           -- an input that is not the admin's own
+  grant w.admin [t] 500.01             -- more than the inputs hold
+  grant w.admin [t] 0.0                -- zero
+  grant w.admin [] 10.0                -- no inputs
+  v <- submit w.admin do
+    exerciseCmd adm CusdtAdmin_GrantVestingFromTreasury with beneficiary = w.bob, amount = 200.0, start = now, cliff = now, finish = addRelTime now (days 10), revocable = True, treasuryCids = [t]
+  expectBalance (supplyAll w) 550.0 "supply unchanged: 500 treasury + 50"
+  expectBalance (balance w w.admin) 300.0 "the treasury kept the change"
+  locked <- lockedOf w w.bob
+  assertMsg "bob has 200 locked" (sum [ h.amount | (_, h) <- locked ] == 200.0)
+  passTime (days 5)
+  _ <- submit w.admin do exerciseCmd v CusdtVesting_Revoke
+  expectBalance (balance w w.bob) 100.0 "the vested half stays with bob"
+  expectBalance (balance w w.admin) 400.0 "the unvested half returns to the treasury"
+  expectBalance (supplyAll w) 550.0 "supply unchanged after the revoke"

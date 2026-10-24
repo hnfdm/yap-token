@@ -12,7 +12,7 @@ const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cry
 const token = await getToken();
 const auth = { method: "static", token };
 const sdk = await (await SDK.create({ auth, ledgerClientUrl: need("LEDGER_URL") })).extend({ token: { auth, registries: [REGISTRY], registryAuth: "none" } });
-const asset = (await sdk.token.assets()).find((a) => a.id === "cUSDT");
+const asset = (await sdk.token.assets()).find((a) => a.id === "YAP");
 
 // ---- parties + keys ----------------------------------------------------------------------------
 const KEYFILE = new URL("./.keys/ext-parties.json", import.meta.url);
@@ -53,7 +53,7 @@ async function multiSigned(actAs, commands, disclosed, { signers = actAs, keyOve
 }
 const spec = (executor, sender, receiver, microAmount, ref) => ({
   settlement: { executor, settlementRef: { id: ref, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(3_600_000), settleBefore: iso(7_200_000), meta: { values: {} } },
-  transferLegId: "leg-1", transferLeg: { sender, receiver, amount: (microAmount / 1e6).toFixed(10), instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } });
+  transferLegId: "leg-1", transferLeg: { sender, receiver, amount: (microAmount / 1e6).toFixed(10), instrumentId: { admin, id: "YAP" }, meta: { values: {} } } });
 async function createAllocation(executor, microAmount) {
   const ref = `extal-${Date.now()}-${n++}`;
   await run(A, await sdk.token.allocation.instruction.create({ allocationSpecification: spec(executor.partyId, A.partyId, B.partyId, microAmount, ref), asset }));

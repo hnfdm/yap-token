@@ -17,7 +17,7 @@ const REG = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptola
 const token = await getToken();
 const { transfer, ti, tpl } = makeOps({ token, admin, registry: REG });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const inst = { admin, id: "cUSDT" };
+const inst = { admin, id: "YAP" };
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = "") => { (c ? pass++ : fail++); console.log(`${c ? "PASS" : "FAIL"}  ${n}${x ? "  — " + x : ""}`); };

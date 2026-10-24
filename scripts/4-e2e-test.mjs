@@ -23,7 +23,7 @@ if (sum(sHold) < Number(amount)) throw new Error("sender has insufficient cUSDT 
 
 const transfer = {
   sender, receiver, amount: Number(amount).toFixed(10),
-  instrumentId: { admin, id: "cUSDT" },
+  instrumentId: { admin, id: "YAP" },
   requestedAt: new Date(Date.now() - 30_000).toISOString(),
   executeBefore: new Date(Date.now() + 3_600_000).toISOString(),
   inputHoldingCids: sHold.map((h) => h.contractId),

@@ -9,7 +9,7 @@ const E = loadEnv(".env.testnet"); if (E.INSECURE_TLS === "1") process.env.NODE_
 const n = node(E, "t1"), admin = E.CUSDT_ADMIN_PARTY, ALICE = E.CUSDT_ALICE, BOB = E.CUSDT_BOB, sfx = admin.split("::")[1];
 const HOLD = "#cusdt-token:CusdtToken:CusdtHolding", ADM = "#cusdt-token:CusdtToken:CusdtAdmin", VEST = "#cusdt-token:CusdtToken:CusdtVesting", OPA = "#cusdt-token:CusdtToken:CusdtOperatorAuthority", PRE = "#cusdt-token:CusdtToken:CusdtTransferPreapproval", BMF = "#cusdt-token:CusdtToken:CusdtBurnMintFactory";
 const I_BM = "#splice-api-token-burn-mint-v1:Splice.Api.Token.BurnMintV1:BurnMintFactory";
-const inst = { admin, id: "cUSDT" }, noCtx = { context: { values: {} }, meta: { values: {} } };
+const inst = { admin, id: "YAP" }, noCtx = { context: { values: {} }, meta: { values: {} } };
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 const mu = (c) => Math.round(Number(c.createArgument.amount) * 1e6);

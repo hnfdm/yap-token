@@ -18,7 +18,7 @@ export function makeOps({ token, admin, registry }) {
     const r = await fetch(`${registry}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(`registry ${r.status}`); return r.json();
   });
-  const inst = { admin, id: "cUSDT" };
+  const inst = { admin, id: "YAP" };
   /** transfer; `amount` is a decimal STRING (so malformed values can be tested); overrides patch the transfer record */
   const transfer = (sender, receiver, amount, inputs, o = {}) => async () => {
     const t = { sender, receiver, amount, instrumentId: inst, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: inputs.map((h) => h.contractId ?? h), meta: { values: {} }, ...(o.patch ?? {}) };

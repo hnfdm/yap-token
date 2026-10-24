@@ -60,7 +60,7 @@ try {
     left -= k;
   }
   ok("minted N x 1 micro to alice", minted.length === N, `metered ${bytes} B`);
-  const tr = (cid) => ({ sender: ALICE, receiver: DAVE, amount: amt(1), instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(7_200_000), inputHoldingCids: [cid], meta: { values: {} } });
+  const tr = (cid) => ({ sender: ALICE, receiver: DAVE, amount: amt(1), instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(7_200_000), inputHoldingCids: [cid], meta: { values: {} } });
   const f = await post("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: tr(minted[0]) } });
   ok("registry answers `offer` for dave", f.transferKind === "offer", f.transferKind);
   for (const part of chunks(minted, 50)) await metered([ALICE], part.map((cid) => ({ ExerciseCommand: { templateId: IF.TF, contractId: f.factoryId, choice: "TransferFactory_Transfer", choiceArgument: { expectedAdmin: admin, transfer: tr(cid), extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } })), f.choiceContext.disclosedContracts);

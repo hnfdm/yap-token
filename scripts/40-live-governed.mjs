@@ -15,7 +15,7 @@ const P = "#cusdt-token:CusdtToken:", G = "#cusdt-governance:CusdtGovernance:";
 const HOLD = P + "CusdtHolding", ADM = P + "CusdtAdmin", OPA = P + "CusdtOperatorAuthority", INSTR = P + "CusdtTransferInstruction";
 const I_TF2 = "#splice-api-token-transfer-instruction-v2:Splice.Api.Token.TransferInstructionV2:TransferFactory";
 const I_TI2 = "#splice-api-token-transfer-instruction-v2:Splice.Api.Token.TransferInstructionV2:TransferInstruction";
-const inst = { admin: GOV, id: "cUSDT" }, noCtx = { context: { values: {} }, meta: { values: {} } };
+const inst = { admin: GOV, id: "YAP" }, noCtx = { context: { values: {} }, meta: { values: {} } };
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 const mu = (c) => Math.round(Number(c.createArgument.amount) * 1e6);

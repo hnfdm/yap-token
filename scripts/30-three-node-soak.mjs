@@ -40,13 +40,13 @@ const free = (S, p) => S.H.filter((h) => h.createArgument.owner === p && h.creat
 const inputsFor = (S, p, need) => { let acc = 0; const out = []; for (const h of shuffle(free(S, p))) { out.push(h); acc += mu(h.createArgument.amount); if (acc >= need) return out; } return null; };
 
 async function offer(sender, receiver, micro, inputs) {
-  const tr = { sender, receiver, amount: amt(micro), instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: inputs.map((h) => h.contractId), meta: { values: {} } };
+  const tr = { sender, receiver, amount: amt(micro), instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: inputs.map((h) => h.contractId), meta: { values: {} } };
   const f = await post("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: tr } });
   return metered(NODE[sender], [sender], [{ ExerciseCommand: { templateId: IF.TF, contractId: f.factoryId, choice: "TransferFactory_Transfer", choiceArgument: { expectedAdmin: admin, transfer: tr, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
 }
 async function allocate(sender, receiver, micro, inputs, ref) {
   const spec = { settlement: { executor: admin, settlementRef: { id: ref, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(3_600_000), settleBefore: iso(7_200_000), meta: { values: {} } },
-    transferLegId: "leg-1", transferLeg: { sender, receiver, amount: amt(micro), instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } };
+    transferLegId: "leg-1", transferLeg: { sender, receiver, amount: amt(micro), instrumentId: { admin, id: "YAP" }, meta: { values: {} } } };
   const args = { expectedAdmin: admin, allocation: spec, requestedAt: iso(-30_000), inputHoldingCids: inputs.map((h) => h.contractId) };
   const f = await post("/registry/allocation-instruction/v1/allocation-factory", { choiceArguments: args });
   return metered(NODE[sender], [sender], [{ ExerciseCommand: { templateId: IF.AF, contractId: f.factoryId, choice: "AllocationFactory_Allocate", choiceArgument: { ...args, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);

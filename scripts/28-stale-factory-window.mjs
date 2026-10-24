@@ -18,7 +18,7 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = "") => { (c ? pass++ : fail++); console.log(`${c ? "PASS" : "FAIL"}  ${n}${x ? "  — " + x : ""}`); };
 const expected = supply(await snapshot(await ours.token(), admin));
 const probe = () => fetch(`${REGISTRY}/registry/transfer-instruction/v1/transfer-factory`, { method: "POST", headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: { sender: ALICE, receiver: ALICE, amount: amt(1), instrumentId: { admin, id: "cUSDT" }, requestedAt: new Date(Date.now() - 3e4).toISOString(), executeBefore: new Date(Date.now() + 36e5).toISOString(), inputHoldingCids: [], meta: { values: {} } } } }) }).then((r) => r.json());
+  body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: { sender: ALICE, receiver: ALICE, amount: amt(1), instrumentId: { admin, id: "YAP" }, requestedAt: new Date(Date.now() - 3e4).toISOString(), executeBefore: new Date(Date.now() + 36e5).toISOString(), inputHoldingCids: [], meta: { values: {} } } } }) }).then((r) => r.json());
 
 const warm = await probe(); await probe();
 console.log(`registry factory (cache warm): ${warm.factoryId.slice(0, 16)}…`);

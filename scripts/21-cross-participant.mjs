@@ -50,7 +50,7 @@ await group("2. direct: preapproval for a REMOTE receiver, carol cancels it on h
   const [adm] = await ours.acs(admin, T.ADMIN);
   await ours.tx([admin], [{ ExerciseCommand: { templateId: T.ADMIN, contractId: adm.contractId, choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver: CAROL } } }]);
   const h = (await mine(ours, ALICE))[0];
-  const probe = await regPost("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: { sender: ALICE, receiver: CAROL, amount: amt(1), instrumentId: { admin, id: "cUSDT" }, requestedAt: new Date(Date.now() - 30000).toISOString(), executeBefore: new Date(Date.now() + 3.6e6).toISOString(), inputHoldingCids: [], meta: { values: {} } } } });
+  const probe = await regPost("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: { sender: ALICE, receiver: CAROL, amount: amt(1), instrumentId: { admin, id: "YAP" }, requestedAt: new Date(Date.now() - 30000).toISOString(), executeBefore: new Date(Date.now() + 3.6e6).toISOString(), inputHoldingCids: [], meta: { values: {} } } } });
   ok("registry answers `direct` for a receiver on another participant", probe.transferKind === "direct", probe.transferKind);
   await o.transfer(ALICE, CAROL, amt(1), [h])();
   const got = await waitFor("direct credit", async () => sumH(await mine(mzf, CAROL)) === c0 + 1);
@@ -63,7 +63,7 @@ await group("2. direct: preapproval for a REMOTE receiver, carol cancels it on h
 
 await group("3. carol is the SENDER: factory + disclosure come from OUR registry, she submits on HER node", async () => {
   const a0 = sumH(await mine(ours, ALICE)); const holdings = await mine(mzf, CAROL);
-  const t = { sender: CAROL, receiver: ALICE, amount: amt(1), instrumentId: { admin, id: "cUSDT" }, requestedAt: new Date(Date.now() - 30000).toISOString(), executeBefore: new Date(Date.now() + 3.6e6).toISOString(), inputHoldingCids: [holdings[0].contractId], meta: { values: {} } };
+  const t = { sender: CAROL, receiver: ALICE, amount: amt(1), instrumentId: { admin, id: "YAP" }, requestedAt: new Date(Date.now() - 30000).toISOString(), executeBefore: new Date(Date.now() + 3.6e6).toISOString(), inputHoldingCids: [holdings[0].contractId], meta: { values: {} } };
   const f = await regPost("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: t } });
   await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.TF, contractId: f.factoryId, choice: "TransferFactory_Transfer",
     choiceArgument: { expectedAdmin: admin, transfer: t, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
@@ -78,7 +78,7 @@ await group("3. carol is the SENDER: factory + disclosure come from OUR registry
 await group("4. allocation across participants (executor admin + receiver alice on OUR node, sender carol on HERS)", async () => {
   const holdings = await mine(mzf, CAROL);
   const spec = { settlement: { executor: admin, settlementRef: { id: `xp-${Date.now()}`, cid: null }, requestedAt: new Date(Date.now() - 30000).toISOString(), allocateBefore: new Date(Date.now() + 3.6e6).toISOString(), settleBefore: new Date(Date.now() + 7.2e6).toISOString(), meta: { values: {} } },
-    transferLegId: "leg-1", transferLeg: { sender: CAROL, receiver: ALICE, amount: amt(1), instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } };
+    transferLegId: "leg-1", transferLeg: { sender: CAROL, receiver: ALICE, amount: amt(1), instrumentId: { admin, id: "YAP" }, meta: { values: {} } } };
   const args = { expectedAdmin: admin, allocation: spec, requestedAt: new Date(Date.now() - 30000).toISOString(), inputHoldingCids: [holdings[0].contractId] };
   const f = await regPost("/registry/allocation-instruction/v1/allocation-factory", { choiceArguments: args });
   await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.AF, contractId: f.factoryId, choice: "AllocationFactory_Allocate", choiceArgument: { ...args, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
@@ -97,7 +97,7 @@ await group("4. allocation across participants (executor admin + receiver alice 
 await group("5. cleanup: carol returns everything to alice", async () => {
   const hs = await mine(mzf, CAROL); const total = sumH(hs);
   if (total > 0) {
-    const t = { sender: CAROL, receiver: ALICE, amount: amt(total), instrumentId: { admin, id: "cUSDT" }, requestedAt: new Date(Date.now() - 30000).toISOString(), executeBefore: new Date(Date.now() + 3.6e6).toISOString(), inputHoldingCids: hs.map((h) => h.contractId), meta: { values: {} } };
+    const t = { sender: CAROL, receiver: ALICE, amount: amt(total), instrumentId: { admin, id: "YAP" }, requestedAt: new Date(Date.now() - 30000).toISOString(), executeBefore: new Date(Date.now() + 3.6e6).toISOString(), inputHoldingCids: hs.map((h) => h.contractId), meta: { values: {} } };
     const f = await regPost("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: t } });
     await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.TF, contractId: f.factoryId, choice: "TransferFactory_Transfer", choiceArgument: { expectedAdmin: admin, transfer: t, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
     const seen = await waitFor("instruction at alice", async () => (await ours.acs(ALICE, T.INSTR)).find((i) => i.createArgument.transfer.sender === CAROL));

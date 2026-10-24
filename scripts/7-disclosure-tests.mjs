@@ -33,7 +33,7 @@ async function mustFail(name, want, fn) {
 // 1. bob tries to spend alice's holding (disclosed to him)
 await mustFail("spend a disclosed holding owned by someone else", "not owned by sender", async () => {
   const transfer = {
-    sender: BOB, receiver: ALICE, amount: "1.0000000000", instrumentId: { admin, id: "cUSDT" },
+    sender: BOB, receiver: ALICE, amount: "1.0000000000", instrumentId: { admin, id: "YAP" },
     requestedAt: new Date(Date.now() - 30_000).toISOString(), executeBefore: new Date(Date.now() + 3_600_000).toISOString(),
     inputHoldingCids: a0.map((h) => h.contractId), meta: { values: {} },
   };

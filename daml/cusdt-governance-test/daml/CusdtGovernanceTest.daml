@@ -179,6 +179,45 @@ testBurnTreasury = do
   hs <- query @CusdtHolding w.gov
   assertMsg "only alice's 5 is left" (sum [ h.amount | (_, h) <- hs ] == 5.0 && length hs == 1)
 
+testFixedSupplyTreasury : Script ()
+testFixedSupplyTreasury = do
+  w <- setup
+  now <- getTime
+  tf <- submit w.gov do createCmd CusdtTransferFactory with admin = w.gov
+  -- one-time issuance of the whole supply to the governor itself
+  treasury <- submit w.gov do createCmd CusdtHolding with admin = w.gov, owner = w.gov, amount = 1000.0, lock = None
+  let supply = do
+        hs <- query @CusdtHolding w.gov
+        vs <- query @CusdtTransferInstruction w.gov
+        pure (sum [ h.amount | (_, h) <- hs ] + sum [ i.transfer.amount | (_, i) <- vs ])
+  -- a vesting grant funded from the treasury: the supply does not change
+  pv <- submit w.member do
+    createCmd GrantVestingFromTreasuryProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, treasuryCids = [treasury], beneficiary = w.alice, amount = 300.0, start = now, cliff = now, finish = addRelTime now (days 10), revocable = True
+  executeFails w.member pv
+  execute w.gov pv
+  s1 <- supply
+  assertMsg ("supply still 1000, got " <> show s1) (s1 == 1000.0)
+  locked <- query @CusdtHolding w.gov
+  assertMsg "alice has 300 locked" (sum [ h.amount | (_, h) <- locked, h.owner == w.alice, h.lock /= None ] == 300.0)
+  assertMsg "the treasury kept 700 as change" (sum [ h.amount | (_, h) <- locked, h.owner == w.gov ] == 700.0)
+  -- more than the treasury holds is refused
+  [(rest, _)] <- pure [ (c, h) | (c, h) <- locked, h.owner == w.gov ]
+  pBig <- submit w.member do
+    createCmd GrantVestingFromTreasuryProposal with governanceParty = w.gov, proposer = w.member, adminCid = w.adm, treasuryCids = [rest], beneficiary = w.bob, amount = 700.01, start = now, cliff = now, finish = addRelTime now (days 10), revocable = False
+  executeFails w.gov pBig
+  -- a plain transfer out of the treasury (an offer that bob accepts later); supply still 1000
+  pt <- submit w.member do
+    createCmd TreasuryTransferProposal with governanceParty = w.gov, proposer = w.member, factoryCid = tf, receiver = w.bob, amount = 200.0, treasuryCids = [rest], executeBefore = addRelTime now (days 1)
+  executeFails w.member pt
+  execute w.gov pt
+  s2 <- supply
+  assertMsg ("supply still 1000 after the transfer offer, got " <> show s2) (s2 == 1000.0)
+  is <- query @CusdtTransferInstruction w.gov
+  assertMsg "one pending offer of 200 to bob" (length [ () | (_, i) <- is, i.transfer.receiver == w.bob, i.transfer.amount == 200.0 ] == 1)
+  -- the governor cannot send to itself through this proposal, nor 0
+  submitMustFail w.member do createCmd TreasuryTransferProposal with governanceParty = w.gov, proposer = w.member, factoryCid = tf, receiver = w.gov, amount = 1.0, treasuryCids = [rest], executeBefore = addRelTime now (days 1)
+  submitMustFail w.member do createCmd TreasuryTransferProposal with governanceParty = w.gov, proposer = w.member, factoryCid = tf, receiver = w.bob, amount = 0.0, treasuryCids = [rest], executeBefore = addRelTime now (days 1)
+
 -- helper: appoint through the governor-direct choice (the governed path is tested separately)
 appoint : W -> Decimal -> Script (ContractId CusdtOperatorAuthority)
 appoint w al = do

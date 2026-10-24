@@ -49,7 +49,7 @@ async function sendMany(srcCids) {
   const created = []; let cost = 0, txs = 0;
   for (let i = 0; i < srcCids.length; i += BATCH) {
     const part = srcCids.slice(i, i + BATCH);
-    const t = { sender: ALICE, receiver: BOB, amount: "0.0000010000", instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: [part[0]], meta: { values: {} } };
+    const t = { sender: ALICE, receiver: BOB, amount: "0.0000010000", instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: [part[0]], meta: { values: {} } };
     const f = await (await fetch(`${REGISTRY}/registry/transfer-instruction/v1/transfer-factory`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: t } }) })).json();
     const cmds = part.map((cid) => ({ ExerciseCommand: { templateId: IF_TF, contractId: f.factoryId, choice: "TransferFactory_Transfer",
       choiceArgument: { expectedAdmin: admin, transfer: { ...t, inputHoldingCids: [cid] }, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }));
@@ -80,9 +80,9 @@ try {
 
   try { await acs(token, BOB, T.HOLDING); ok("bob's own ACS query", false, "unexpectedly worked"); } catch (e) { ok("bob's own ACS query hits the 413 cap", isCap(short(e))); }
   try { const l = await sdk.token.utxos.list({ partyId: BOB, includeLocked: true }); ok("SDK default list for bob", false, `unexpectedly returned ${l.length}`); } catch (e) { ok("SDK default list for bob throws", true); }
-  let spendAuto = "ok"; try { await sdk.token.transfer.create({ sender: BOB, recipient: ALICE, amount: "0.000001", instrumentId: "cUSDT", registryUrl: REGISTRY }); } catch (e) { spendAuto = short(e).slice(0, 140); }
+  let spendAuto = "ok"; try { await sdk.token.transfer.create({ sender: BOB, recipient: ALICE, amount: "0.000001", instrumentId: "YAP", registryUrl: REGISTRY }); } catch (e) { spendAuto = short(e).slice(0, 140); }
   ok("FINDING: can bob start a transfer with automatic input selection?", true, spendAuto === "ok" ? "yes (the SDK handles it)" : `NO — ${spendAuto}`);
-  let spendExplicit = "ok"; try { await sdk.token.transfer.create({ sender: BOB, recipient: ALICE, amount: "0.000001", instrumentId: "cUSDT", registryUrl: REGISTRY, inputUtxos: [dustCids[0]] }); } catch (e) { spendExplicit = short(e).slice(0, 140); }
+  let spendExplicit = "ok"; try { await sdk.token.transfer.create({ sender: BOB, recipient: ALICE, amount: "0.000001", instrumentId: "YAP", registryUrl: REGISTRY, inputUtxos: [dustCids[0]] }); } catch (e) { spendExplicit = short(e).slice(0, 140); }
   ok("bob CAN still spend when he names the input holding himself", spendExplicit === "ok", spendExplicit);
 
   // recovery with the standard wallet tool

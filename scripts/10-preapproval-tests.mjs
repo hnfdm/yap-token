@@ -20,7 +20,7 @@ const IFACE_TI = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.Tra
 const held = async (p) => (await acs(token, p, HOLDING)).filter((c) => c.createArgument.owner === p);
 const total = (hs) => hs.reduce((s, h) => s + Number(h.createArgument.amount), 0);
 const mk = (sender, receiver, amount, inputs) => ({
-  sender, receiver, amount: Number(amount).toFixed(10), instrumentId: { admin, id: "cUSDT" },
+  sender, receiver, amount: Number(amount).toFixed(10), instrumentId: { admin, id: "YAP" },
   requestedAt: new Date(Date.now() - 30_000).toISOString(), executeBefore: new Date(Date.now() + 3_600_000).toISOString(),
   inputHoldingCids: inputs.map((h) => h.contractId), meta: { values: {} },
 });

@@ -36,7 +36,7 @@ const post = (path, body) => fetch(`${REGISTRY}${path}`, { method: "POST", heade
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 // same as ops.transfer but through submit-and-wait-for-transaction, which reports paidTrafficCost
 const offer = async (h) => {
-  const tr = { sender: ALICE, receiver: RCV, amount: amt(1), instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: [h.contractId], meta: { values: {} } };
+  const tr = { sender: ALICE, receiver: RCV, amount: amt(1), instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: [h.contractId], meta: { values: {} } };
   const f = await post("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: tr } });
   return ours.tx([ALICE], [{ ExerciseCommand: { templateId: IF.TF, contractId: f.factoryId, choice: "TransferFactory_Transfer", choiceArgument: { expectedAdmin: admin, transfer: tr, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
 };
@@ -62,7 +62,7 @@ const lt = Date.now();
 const seen = (await ours.acs(RCV, INSTR)).filter((i) => i.createArgument.transfer.sender === ALICE);
 ok("receiver lists all pending offers (>= those acknowledged)", seen.length >= sent, `${seen.length} listed in ${Date.now() - lt} ms`);
 const bt = Date.now();
-const probe = await fetch(`${REGISTRY}/registry/transfer-instruction/v1/transfer-factory`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: { sender: ALICE, receiver: RCV, amount: amt(1), instrumentId: { admin, id: "cUSDT" }, requestedAt: new Date(Date.now() - 3e4).toISOString(), executeBefore: new Date(Date.now() + 36e5).toISOString(), inputHoldingCids: [], meta: { values: {} } } } }) }).then((r) => r.json());
+const probe = await fetch(`${REGISTRY}/registry/transfer-instruction/v1/transfer-factory`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: { sender: ALICE, receiver: RCV, amount: amt(1), instrumentId: { admin, id: "YAP" }, requestedAt: new Date(Date.now() - 3e4).toISOString(), executeBefore: new Date(Date.now() + 36e5).toISOString(), inputHoldingCids: [], meta: { values: {} } } } }) }).then((r) => r.json());
 ok("registry still answers `offer` for that receiver with many pending", probe.transferKind === "offer", `${probe.transferKind} in ${Date.now() - bt} ms`);
 const a1 = (await ours.acs(ALICE, INSTR)).length;
 ok("the SENDER sees them too", a1 >= seen.length, `${a1}`);

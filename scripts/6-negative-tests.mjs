@@ -21,7 +21,7 @@ const pendingFor = async (receiver, sender) =>
 
 const mkTransfer = (sender, receiver, amount, inputs, o = {}) => ({
   sender, receiver, amount: Number(amount).toFixed(10),
-  instrumentId: o.instrumentId ?? { admin, id: "cUSDT" },
+  instrumentId: o.instrumentId ?? { admin, id: "YAP" },
   requestedAt: o.requestedAt ?? new Date(Date.now() - 30_000).toISOString(),
   executeBefore: o.executeBefore ?? new Date(Date.now() + 3_600_000).toISOString(),
   inputHoldingCids: inputs.map((h) => h.contractId ?? h), meta: { values: {} },
@@ -29,7 +29,7 @@ const mkTransfer = (sender, receiver, amount, inputs, o = {}) => ({
 async function factoryFor(transfer) {
   const r = await fetch(`${registry}/registry/transfer-instruction/v1/transfer-factory`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: { ...transfer, instrumentId: { admin, id: "cUSDT" } } } }),
+    body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: { ...transfer, instrumentId: { admin, id: "YAP" } } } }),
   });
   if (!r.ok) throw new Error(`registry ${r.status}`);
   return r.json();

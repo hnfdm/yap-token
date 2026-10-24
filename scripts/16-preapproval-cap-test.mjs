@@ -36,7 +36,7 @@ async function archive(cids) {
   }
 }
 async function probe() {   // what the registry answers for alice -> bob right now
-  const t = { sender: ALICE, receiver: BOB, amount: "0.0000010000", instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: [], meta: { values: {} } };
+  const t = { sender: ALICE, receiver: BOB, amount: "0.0000010000", instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: [], meta: { values: {} } };
   const r = await fetch(`${registry}/registry/transfer-instruction/v1/transfer-factory`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: t } }) });
   const j = await r.json().catch(() => ({}));
   return { status: r.status, kind: j.transferKind ?? j.error };

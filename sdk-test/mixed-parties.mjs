@@ -14,7 +14,7 @@ const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cry
 const token = await getToken();
 const auth = { method: "static", token };
 const sdk = await (await SDK.create({ auth, ledgerClientUrl: need("LEDGER_URL") })).extend({ token: { auth, registries: [REGISTRY], registryAuth: "none" } });
-const asset = (await sdk.token.assets()).find((a) => a.id === "cUSDT");
+const asset = (await sdk.token.assets()).find((a) => a.id === "YAP");
 const short = (e) => String(e?.message ?? e?.response?.data ?? e).replace(/\s+/g, " ");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 let n = 0;
@@ -33,7 +33,7 @@ async function step(name, fn) { try { await fn(); } catch (e) { fail++; console.
 /** offer from `from` to `to`, accepted by `to`; each side uses ITS OWN kind of signing */
 async function offerAndAccept(label, from, to, micro) {
   const f0 = await bal(from), t0 = await bal(to);
-  await as(from, await sdk.token.transfer.create({ sender: id(from), recipient: id(to), amount: (micro / 1e6).toFixed(6), instrumentId: "cUSDT", registryUrl: REGISTRY }));
+  await as(from, await sdk.token.transfer.create({ sender: id(from), recipient: id(to), amount: (micro / 1e6).toFixed(6), instrumentId: "YAP", registryUrl: REGISTRY }));
   const pend = await sdk.token.transfer.pending(id(to));
   const mine = pend.find((p) => p.interfaceViewValue.transfer.sender === id(from));
   if (!mine) throw new Error("pending instruction not visible to the receiver");
@@ -52,7 +52,7 @@ await step("direct int -> ext", async () => {
   const [adm] = await acs(token, admin, `${PKG}:CusdtToken:CusdtAdmin`);
   await rawSubmit(token, { actAs: [admin], label: "mix-pre", commands: [{ ExerciseCommand: { templateId: `${PKG}:CusdtToken:CusdtAdmin`, contractId: adm.contractId, choice: "CusdtAdmin_CreatePreapproval", choiceArgument: { receiver: EB.partyId } } }] });
   const t0 = await bal(EB), f0 = await bal(IA);
-  await as(IA, await sdk.token.transfer.create({ sender: IA, recipient: EB.partyId, amount: "0.000001", instrumentId: "cUSDT", registryUrl: REGISTRY }));
+  await as(IA, await sdk.token.transfer.create({ sender: IA, recipient: EB.partyId, amount: "0.000001", instrumentId: "YAP", registryUrl: REGISTRY }));
   ok("DIRECT internal -> external (preapproved): credited with no accept", (await bal(EB)) === t0 + 1 && (await bal(IA)) === f0 - 1 && (await sdk.token.transfer.pending(EB.partyId)).length === 0);
   const [pre] = (await acs(token, admin, `${PKG}:CusdtToken:CusdtTransferPreapproval`)).filter((c) => c.createArgument.receiver === EB.partyId);
   await asExternal(EB, [[{ ExerciseCommand: { templateId: `${PKG}:CusdtToken:CusdtTransferPreapproval`, contractId: pre.contractId, choice: "CusdtTransferPreapproval_Cancel", choiceArgument: {} } }], []]);

@@ -18,7 +18,7 @@ const sdk = await sdk0.extend({ token: { auth, registries: [REGISTRY], registryA
 console.log("registry:", REGISTRY);
 const assets = await sdk.token.assets();
 console.log("assets:", JSON.stringify(assets, null, 1));
-const a = assets.find((x) => x.id === "cUSDT");
+const a = assets.find((x) => x.id === "YAP");
 console.log(a && a.admin === admin ? "PASS  cUSDT discovered with the right admin" : "FAIL  cUSDT not discovered / admin mismatch");
 
 for (const [name, p] of [["alice", ALICE], ["bob", BOB]]) {

@@ -16,7 +16,7 @@ const I_TF1 = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.Transf
 const I_TI1 = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.TransferInstructionV1:TransferInstruction";
 const I_TF2 = "#splice-api-token-transfer-instruction-v2:Splice.Api.Token.TransferInstructionV2:TransferFactory";
 const I_TI2 = "#splice-api-token-transfer-instruction-v2:Splice.Api.Token.TransferInstructionV2:TransferInstruction";
-const inst = { admin, id: "cUSDT" }, noCtx = { context: { values: {} }, meta: { values: {} } };
+const inst = { admin, id: "YAP" }, noCtx = { context: { values: {} }, meta: { values: {} } };
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 const mu = (c) => Math.round(Number(c.createArgument.amount) * 1e6);

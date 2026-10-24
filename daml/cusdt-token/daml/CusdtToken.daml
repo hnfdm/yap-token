@@ -1,4 +1,4 @@
--- cUSDT: CIP-56 (Canton Token Standard) token.
+-- YAP (formerly YAP): CIP-56 (Canton Token Standard) token.
 --
 -- Implements Holding + TransferFactory + TransferInstruction. Token metadata is
 -- off-ledger (see /registry in this repo). Allocation / settlement is NOT implemented yet.
@@ -19,7 +19,7 @@ import Splice.Api.Token.TransferInstructionV1 qualified as TI
 import Splice.Api.Token.TransferInstructionV2 qualified as TI2
 
 cusdtSymbol : Text
-cusdtSymbol = "cUSDT"
+cusdtSymbol = "YAP"
 
 cusdtInstrumentId : Party -> H.InstrumentId
 cusdtInstrumentId admin = H.InstrumentId with admin = admin, id = cusdtSymbol
@@ -37,12 +37,12 @@ senderMeta : Party -> M.Metadata
 senderMeta sender = M.Metadata with
   values = TextMap.fromList [(spliceMetaPrefix <> "sender", partyToText sender)]
 
--- cUSDT has 6 decimals (as advertised by the registry); the ledger type has 10.
+-- YAP has 6 decimals (as advertised by the registry); the ledger type has 10.
 assertPrecision : Text -> Decimal -> Update ()
 assertPrecision what x = assertMsg (what <> " has more than 6 decimals") (roundBankers 6 x == x)
 
 -- Token Standard V2 helpers ---------------------------------------------------------------------------------
--- V2 addresses holdings by Account (owner, provider, id). cUSDT only has plain owner accounts: no provider, default id.
+-- V2 addresses holdings by Account (owner, provider, id). YAP only has plain owner accounts: no provider, default id.
 -- Accounts with owner = None (the admin-managed mint/burn accounts) are not used: the issuer mints with CusdtAdmin_Mint / BurnMint.
 cusdtInstrumentIdV2 : Party -> H2.InstrumentId
 cusdtInstrumentIdV2 admin = H2.InstrumentId with admin = admin, id = cusdtSymbol
@@ -108,7 +108,7 @@ failed changeCids = TI.TransferInstructionResult with
   meta = M.emptyMetadata
 
 -- Archive the given holdings and pay `amount` out of them; the rest comes back as change.
--- Every input must be an unlocked cUSDT holding of `sender`. Used by transfers and allocations.
+-- Every input must be an unlocked YAP holding of `sender`. Used by transfers and allocations.
 spendInputs : Party -> Party -> Decimal -> [ContractId H.Holding] -> Update [ContractId H.Holding]
 spendInputs admin sender amount inputCidsI = do
   change <- spendInputsT admin sender amount (map fromInterfaceContractId inputCidsI)
@@ -198,7 +198,7 @@ template CusdtHolding
         forA_ otherCids archive
         create CusdtHolding with admin, owner, amount = amount + sum (map (\o -> o.amount) others), lock = None
 
-    -- Owner destroys their own holding (e.g. the admin burning redeemed cUSDT).
+    -- Owner destroys their own holding (e.g. the admin burning redeemed YAP).
     -- The admin cannot use THIS choice on other people's holdings (as the only signatory of a holding it can still use Daml's built-in Archive on it).
     choice CusdtHolding_Burn : ()
       controller owner
@@ -278,6 +278,22 @@ template CusdtAdmin
         revocable   : Bool
       controller admin
       do grantVesting admin beneficiary amount start cliff finish revocable
+
+    -- Fixed-supply variant of GrantVesting: the tokens come out of the admin's own (treasury) holdings instead of being minted, so the total
+    -- supply does not change. `treasuryCids` are unlocked holdings owned by the admin; what they hold beyond `amount` goes back to the admin.
+    nonconsuming choice CusdtAdmin_GrantVestingFromTreasury : ContractId CusdtVesting
+      with
+        beneficiary  : Party
+        amount       : Decimal
+        start        : Time
+        cliff        : Time
+        finish       : Time
+        revocable    : Bool
+        treasuryCids : [ContractId CusdtHolding]
+      controller admin
+      do
+        _ <- spendInputsT admin admin amount treasuryCids
+        grantVesting admin beneficiary amount start cliff finish revocable
 
     -- Governance: hands a day-to-day operator a limited, expiring allowance (see CusdtOperatorAuthority).
     -- The admin (governor) keeps every power above; the operator only gets what is written in the delegation.
@@ -537,9 +553,9 @@ template CusdtTransferInstruction
           admin, owner = transfer.sender, amount = transfer.amount, lock = None
         pure (failed [toInterfaceContractId h])
 
-      -- No registry-internal workflow steps exist for cUSDT.
+      -- No registry-internal workflow steps exist for YAP.
       transferInstruction_updateImpl _self _arg =
-        abort "cUSDT transfer instructions have no registry-internal update steps"
+        abort "YAP transfer instructions have no registry-internal update steps"
 
     -- V2 choices are NON-consuming: the implementations archive the instruction themselves, and check that the right party acts.
     interface instance TI2.TransferInstruction for CusdtTransferInstruction where
@@ -590,7 +606,7 @@ template CusdtTransferInstruction
 
 -- Allocation (atomic settlement) ----------------------------------------------
 
--- Reserves `leg.amount` of the sender's cUSDT for a settlement run by `executor`.
+-- Reserves `leg.amount` of the sender's YAP for a settlement run by `executor`.
 -- The funds sit in a locked CusdtHolding (not spendable) until executed, cancelled or withdrawn.
 template CusdtAllocationFactory
   with
@@ -628,7 +644,7 @@ template CusdtAllocationFactory
             holders = [settlement.executor]
             expiresAt = Some settlement.settleBefore
             expiresAfter = None
-            context = Some "cUSDT settlement allocation")
+            context = Some "YAP settlement allocation")
         alloc <- create CusdtAllocation with admin, allocation = spec, lockedCid
         pure AI.AllocationInstructionResult with
           output = AI.AllocationInstructionResult_Completed with
@@ -774,7 +790,7 @@ checkDelegation d allocationCid = do
 -- Generic "burn these holdings, create those" operation for bridges and wallets (Splice.Api.Token.BurnMintV1).
 -- The admin ALWAYS controls it (the standard says so), which is the same power as CusdtAdmin_Mint and the built-in
 -- Archive; the choice is just the standard, parseable way to use it. Rules enforced here:
---   * every input is an unlocked cUSDT holding of THIS admin and its owner is among `extraActors` (burning needs the owner's consent),
+--   * every input is an unlocked YAP holding of THIS admin and its owner is among `extraActors` (burning needs the owner's consent),
 --   * outputs are positive with at most 6 decimals; output owners need no consent (a credit),
 --   * the totals of inputs and outputs may differ: that is what makes it usable as a bridge mint/burn.
 template CusdtBurnMintFactory
@@ -831,7 +847,7 @@ vestingLock admin finish = H.Lock with
   expiresAfter = None
   context = Some (vestingLockPrefix <> "linear vesting, fully released at the end")
 
--- rounds down to the 6 decimals of cUSDT
+-- rounds down to the 6 decimals of YAP
 floorMicro : Decimal -> Decimal
 floorMicro x = intToDecimal (truncate (x * 1000000.0)) / 1000000.0
 

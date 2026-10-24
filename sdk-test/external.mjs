@@ -11,7 +11,7 @@ const token = await getToken();
 const auth = { method: "static", token };
 const sdk = await (await SDK.create({ auth, ledgerClientUrl: need("LEDGER_URL") }))
   .extend({ token: { auth, registries: [REGISTRY], registryAuth: "none" } });
-const asset = (await sdk.token.assets()).find((a) => a.id === "cUSDT");
+const asset = (await sdk.token.assets()).find((a) => a.id === "YAP");
 
 // ---- parties + keys (persisted) ------------------------------------------------------------
 const KEYFILE = new URL("./.keys/ext-parties.json", import.meta.url);
@@ -38,7 +38,7 @@ const run = async (party, [cmd, disclosed]) =>
     .sign(party.privateKey).execute({ partyId: party.partyId });
 const holdings = (p) => sdk.token.utxos.list({ partyId: p.partyId, includeLocked: true });
 const total = (hs) => hs.reduce((s, h) => s + Number(h.interfaceViewValue.amount), 0);
-const xfer = (from, to, amount) => sdk.token.transfer.create({ sender: from.partyId, recipient: to.partyId, amount: String(amount), instrumentId: "cUSDT", registryUrl: REGISTRY });
+const xfer = (from, to, amount) => sdk.token.transfer.create({ sender: from.partyId, recipient: to.partyId, amount: String(amount), instrumentId: "YAP", registryUrl: REGISTRY });
 
 let pass = 0, fail = 0;
 const ok = (name, c, x = "") => { (c ? pass++ : fail++); console.log(`${c ? "PASS" : "FAIL"}  ${name}${x ? "  — " + x : ""}`); };
@@ -98,7 +98,7 @@ await step("merge", async () => {
 await step("allocation create + withdraw", async () => {
   const iso = (ms) => new Date(Date.now() + ms).toISOString();
   const spec = { settlement: { executor: admin, settlementRef: { id: `ext-alloc-${Date.now()}`, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(600_000), settleBefore: iso(1_200_000), meta: { values: {} } },
-    transferLegId: "leg-1", transferLeg: { sender: A.partyId, receiver: B.partyId, amount: "3", instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } };
+    transferLegId: "leg-1", transferLeg: { sender: A.partyId, receiver: B.partyId, amount: "3", instrumentId: { admin, id: "YAP" }, meta: { values: {} } } };
   await run(A, await sdk.token.allocation.instruction.create({ allocationSpecification: spec, asset }));
   const pend = await sdk.token.allocation.pending(A.partyId);
   ok("external sender's allocation created and visible", pend.length >= 1 && (await holdings(A)).some((h) => h.interfaceViewValue.lock));

@@ -34,7 +34,7 @@ async function carolAllocates(ref, micro) {
   const inputs = []; let acc = 0; for (const h of all) { inputs.push(h); acc += Math.round(Number(h.createArgument.amount) * 1e6); if (acc >= micro) break; }
   if (acc < micro) throw new Error(`carol has only ${acc} micro, needs ${micro}`);
   const spec = { settlement: { executor: admin, settlementRef: { id: ref, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(3_600_000), settleBefore: iso(7_200_000), meta: { values: {} } },
-    transferLegId: "leg-1", transferLeg: { sender: CAROL, receiver: ALICE, amount: amt(micro), instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } };
+    transferLegId: "leg-1", transferLeg: { sender: CAROL, receiver: ALICE, amount: amt(micro), instrumentId: { admin, id: "YAP" }, meta: { values: {} } } };
   const args = { expectedAdmin: admin, allocation: spec, requestedAt: iso(-30_000), inputHoldingCids: inputs.map((h) => h.contractId) };
   const f = await regPost("/registry/allocation-instruction/v1/allocation-factory", { choiceArguments: args });
   await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.AF, contractId: f.factoryId, choice: "AllocationFactory_Allocate", choiceArgument: { ...args, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
@@ -112,7 +112,7 @@ for (const au of (await ours.acs(admin, AUTH))) await ours.tx([ALICE], [{ Exerci
 ok("no authorities left behind", (await waitFor(async () => (await ours.acs(admin, AUTH)).length === 0, 30000)).v !== null);
 { const hs = await mine(mzf, CAROL); const total = sumH(hs);
   if (total > 0) {
-    const t = { sender: CAROL, receiver: ALICE, amount: amt(total), instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: hs.map((h) => h.contractId), meta: { values: {} } };
+    const t = { sender: CAROL, receiver: ALICE, amount: amt(total), instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: hs.map((h) => h.contractId), meta: { values: {} } };
     const f = await regPost("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: t } });
     await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.TF, contractId: f.factoryId, choice: "TransferFactory_Transfer", choiceArgument: { expectedAdmin: admin, transfer: t, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
     const seen = (await waitFor(async () => (await ours.acs(ALICE, T.INSTR)).find((i) => i.createArgument.transfer.sender === CAROL))).v;

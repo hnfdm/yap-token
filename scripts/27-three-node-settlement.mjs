@@ -49,7 +49,7 @@ ok("the authority (signed by carol@MZF + dave@cryptolampung) is visible to the e
 // 2. carol allocates 2 micro for dave
 const hs = (await mine(mzf, CAROL)).sort((a, b) => Number(b.createArgument.amount) - Number(a.createArgument.amount));
 const spec = { settlement: { executor: admin, settlementRef: { id: REF, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(3_600_000), settleBefore: iso(7_200_000), meta: { values: {} } },
-  transferLegId: "leg-1", transferLeg: { sender: CAROL, receiver: DAVE, amount: amt(2), instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } };
+  transferLegId: "leg-1", transferLeg: { sender: CAROL, receiver: DAVE, amount: amt(2), instrumentId: { admin, id: "YAP" }, meta: { values: {} } } };
 const args = { expectedAdmin: admin, allocation: spec, requestedAt: iso(-30_000), inputHoldingCids: [hs[0].contractId] };
 const f = await regPost("/registry/allocation-instruction/v1/allocation-factory", { choiceArguments: args });
 await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.AF, contractId: f.factoryId, choice: "AllocationFactory_Allocate", choiceArgument: { ...args, extraArgs: { context: f.choiceContext.choiceContextData, meta: { values: {} } } } } }], f.choiceContext.disclosedContracts);
@@ -72,7 +72,7 @@ ok("dave revokes the authority alone, from his own node", (await waitFor(async (
 // 5. cleanup: carol's leftover back to alice (dave keeps his micro: that avoids more traffic on his node)
 { const left = await mine(mzf, CAROL); const total = sumH(left);
   if (total > 0) {
-    const t = { sender: CAROL, receiver: ALICE, amount: amt(total), instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: left.map((h) => h.contractId), meta: { values: {} } };
+    const t = { sender: CAROL, receiver: ALICE, amount: amt(total), instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: left.map((h) => h.contractId), meta: { values: {} } };
     const ff = await regPost("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: t } });
     await mzf.tx([CAROL], [{ ExerciseCommand: { templateId: IF.TF, contractId: ff.factoryId, choice: "TransferFactory_Transfer", choiceArgument: { expectedAdmin: admin, transfer: t, extraArgs: { context: ff.choiceContext.choiceContextData, meta: { values: {} } } } } }], ff.choiceContext.disclosedContracts);
     const seen = (await waitFor(async () => (await ours.acs(ALICE, T.INSTR)).find((i) => i.createArgument.transfer.sender === CAROL))).v;

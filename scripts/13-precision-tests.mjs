@@ -21,7 +21,7 @@ const total = (hs) => hs.reduce((s, h) => s + Number(h.createArgument.amount), 0
 const post = async (path, body) => (await fetch(`${registry}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
 
 async function transfer(sender, receiver, amount) {
-  const t = { sender, receiver, amount, instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000),
+  const t = { sender, receiver, amount, instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000),
     inputHoldingCids: (await held(sender)).map((h) => h.contractId), meta: { values: {} } };
   const f = await post("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: t } });
   return submit(token, { actAs: [sender], label: "prec", disclosedContracts: f.choiceContext.disclosedContracts,
@@ -30,7 +30,7 @@ async function transfer(sender, receiver, amount) {
 }
 async function allocate(sender, receiver, amount) {
   const spec = { settlement: { executor: admin, settlementRef: { id: `prec-${Date.now()}`, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(600_000), settleBefore: iso(1_200_000), meta: { values: {} } },
-    transferLegId: "leg-1", transferLeg: { sender, receiver, amount, instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } };
+    transferLegId: "leg-1", transferLeg: { sender, receiver, amount, instrumentId: { admin, id: "YAP" }, meta: { values: {} } } };
   const args = { expectedAdmin: admin, allocation: spec, requestedAt: iso(-30_000), inputHoldingCids: (await held(sender)).map((h) => h.contractId) };
   const f = await post("/registry/allocation-instruction/v1/allocation-factory", { choiceArguments: args });
   return submit(token, { actAs: [sender], label: "prec-al", disclosedContracts: f.choiceContext.disclosedContracts,

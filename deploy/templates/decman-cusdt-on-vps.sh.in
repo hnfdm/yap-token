@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # cUSDT with the decentralized party cusdt-gov as admin: distribute the DARs, then create the four singleton contracts.
-# Put cusdt-token-@@VERSION@@.dar and cusdt-governance-0.2.0.dar into /opt/decman/dars/ on t1 first (SFTP), then:
+# Put cusdt-token-@@VERSION@@.dar and cusdt-governance-0.3.0.dar into /opt/decman/dars/ on t1 first (SFTP), then:
 #   t1:  bash decman-cusdt-on-vps.sh dars        t2:  bash decman-cusdt-on-vps.sh accept-dars
 #   t1:  bash decman-cusdt-on-vps.sh contracts   t2:  bash decman-cusdt-on-vps.sh accept-contracts
 #   either: bash decman-cusdt-on-vps.sh status
@@ -26,10 +26,10 @@ case "${1:-}" in
   dars)
     cd /opt/decman/dars || exit 1
     echo "$TOKEN_SHA  cusdt-token-@@VERSION@@.dar" | sha256sum -c - || exit 1
-    echo "$GOV_SHA  cusdt-governance-0.2.0.dar" | sha256sum -c - || exit 1
+    echo "$GOV_SHA  cusdt-governance-0.3.0.dar" | sha256sum -c - || exit 1
     python3 - $P2 > /tmp/cdars.json <<'PY'
 import base64,json,sys
-fs=["cusdt-token-@@VERSION@@.dar","cusdt-governance-0.2.0.dar"]
+fs=["cusdt-token-@@VERSION@@.dar","cusdt-governance-0.3.0.dar"]
 print(json.dumps({"dar_files":[{"filename":f,"data":base64.b64encode(open(f,"rb").read()).decode()} for f in fs],"peer_ids":[sys.argv[1]]}))
 PY
     T=$(decman_token)

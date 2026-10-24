@@ -35,7 +35,7 @@ await new Promise((r) => setTimeout(r, 900));
 let pass = 0, fail = 0;
 const ok = (n, c, x = "") => { (c ? pass++ : fail++); console.log(`${c ? "PASS" : "FAIL"}  ${n}${x ? "  — " + x : ""}`); };
 const call = async (method, path, body) => { const r = await fetch(`http://127.0.0.1:${RPORT}${path}`, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }); let j = null; try { j = await r.json(); } catch { /* empty */ } return { status: r.status, j }; };
-const inst = { admin: ADMIN, id: "cUSDT" };
+const inst = { admin: ADMIN, id: "YAP" };
 const t1 = (s, r, extra = {}) => ({ choiceArguments: { expectedAdmin: ADMIN, transfer: { sender: s, receiver: r, amount: "1", instrumentId: inst, ...extra } } });
 const acct = (owner, extra = {}) => ({ owner, provider: null, id: "", ...extra });
 const t2 = (s, r, extra = {}) => ({ choiceArguments: { transfer: { sender: s, receiver: r, amount: "1", instrumentId: inst, ...extra } } });
@@ -53,7 +53,7 @@ try {
   r = await call("POST", F2, t2(acct(ALICE), acct(BOB))); ok("V2 direct", r.j.transferKind === "direct" && r.j.choiceContext.disclosedContracts.length === 2);
   r = await call("POST", F2, t2(acct(ALICE), acct(ALICE))); ok("V2 self", r.j.transferKind === "self");
   r = await call("POST", F2, t2(acct(ALICE), acct(CAROL), { instrumentId: { admin: ADMIN, id: "NOPE" } })); ok("V2 unknown instrument -> 404", r.status === 404);
-  r = await call("POST", F2, t2(acct(ALICE), acct(CAROL), { instrumentId: { admin: "other", id: "cUSDT" } })); ok("V2 other admin's instrument -> 404", r.status === 404);
+  r = await call("POST", F2, t2(acct(ALICE), acct(CAROL), { instrumentId: { admin: "other", id: "YAP" } })); ok("V2 other admin's instrument -> 404", r.status === 404);
   r = await call("POST", F2, t2(ALICE, acct(CAROL))); ok("V2 sender as a plain string (V1 shape) -> 400", r.status === 400);
   r = await call("POST", F2, t2(acct(ALICE), acct(CAROL, { provider: ADMIN }))); ok("V2 account with a provider -> 400", r.status === 400);
   r = await call("POST", F2, t2(acct(ALICE), acct(CAROL, { id: "savings" }))); ok("V2 non-default account id -> 400", r.status === 400);

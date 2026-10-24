@@ -26,7 +26,7 @@ const post = (path, body) => retry(async () => { const r = await fetch(`${regist
 
 // ---- command builders (return thunks so a race can start them together) ---------------------
 const transferT = (sender, receiver, microAmount, inputs) => async () => {
-  const t = { sender, receiver, amount: amt(microAmount), instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: inputs.map((h) => h.contractId), meta: { values: {} } };
+  const t = { sender, receiver, amount: amt(microAmount), instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: inputs.map((h) => h.contractId), meta: { values: {} } };
   const f = await post("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: t } });
   return submit(token, { actAs: [sender], label: "race-t", disclosedContracts: f.choiceContext.disclosedContracts,
     commands: [{ ExerciseCommand: { templateId: IF_TF, contractId: f.factoryId, choice: "TransferFactory_Transfer",
@@ -34,7 +34,7 @@ const transferT = (sender, receiver, microAmount, inputs) => async () => {
 };
 const allocateT = (sender, receiver, microAmount, inputs, ref) => async () => {
   const spec = { settlement: { executor: admin, settlementRef: { id: ref, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(3_600_000), settleBefore: iso(7_200_000), meta: { values: {} } },
-    transferLegId: "leg-1", transferLeg: { sender, receiver, amount: amt(microAmount), instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } };
+    transferLegId: "leg-1", transferLeg: { sender, receiver, amount: amt(microAmount), instrumentId: { admin, id: "YAP" }, meta: { values: {} } } };
   const args = { expectedAdmin: admin, allocation: spec, requestedAt: iso(-30_000), inputHoldingCids: inputs.map((h) => h.contractId) };
   const f = await post("/registry/allocation-instruction/v1/allocation-factory", { choiceArguments: args });
   return submit(token, { actAs: [sender], label: "race-a", disclosedContracts: f.choiceContext.disclosedContracts,

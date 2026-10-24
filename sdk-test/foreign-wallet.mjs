@@ -20,7 +20,7 @@ const alice = await (await SDK.create({ auth: { method: "static", token: await n
 const submit = (sdk, party) => async ([cmds, disclosed]) => sdk.ledger.internal.submit({ commands: Array.isArray(cmds) ? cmds : [cmds], actAs: [party], readAs: [party], disclosedContracts: disclosed ?? [], commandId: `foreign-${Date.now()}-${n++}` });
 const holdings = async (sdk, p) => sdk.token.utxos.list({ partyId: p, includeLocked: true });
 const total = (hs) => hs.reduce((s, h) => s + Math.round(Number(h.interfaceViewValue.amount) * 1e6), 0);
-const xfer = (sdk, sender, recipient, micro) => sdk.token.transfer.create({ sender, recipient, amount: (micro / 1e6).toFixed(6), instrumentId: "cUSDT", registryUrl: REGISTRY });
+const xfer = (sdk, sender, recipient, micro) => sdk.token.transfer.create({ sender, recipient, amount: (micro / 1e6).toFixed(6), instrumentId: "YAP", registryUrl: REGISTRY });
 const pendingFor = async (sdk, p, from) => (await sdk.token.transfer.pending(p)).filter((x) => x.interfaceViewValue?.transfer?.sender === from);
 async function step(name, fn) { console.log(`-- ${name}`); try { await fn(); } catch (e) { fail++; console.log(`FAIL  ${name} threw: ${short(e)}`); } }
 
@@ -29,7 +29,7 @@ await step("discovery from the public registry, over a trusted certificate", asy
   const r = await fetch(`${REGISTRY}/registry/metadata/v1/instruments`);   // plain fetch: Node validates the certificate
   ok("registry reachable by a plain fetch (certificate accepted)", r.ok);
   const assets = await dave.token.assets?.();
-  const a = assets?.find((x) => x.id === "cUSDT");
+  const a = assets?.find((x) => x.id === "YAP");
   ok("SDK on the foreign node discovers cUSDT with the right admin", !!a && a.admin === admin, a ? `admin ${a.admin.slice(0, 20)}…` : "not found");
 });
 

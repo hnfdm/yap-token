@@ -44,7 +44,7 @@ const tokens = await section("token list (is cUSDT a known token?)", "/tokens/li
 });
 await section("search 'cusdt'", "/search?q=cusdt", (j) => console.log("   ", clip(j, 700)));
 await section("search the admin party", `/search?q=${enc(admin)}`, (j) => console.log("   ", clip(j, 500)));
-await section("token overview 'cUSDT'", "/tokens/cUSDT/overview", (j) => console.log("   ", clip(j, 500)));
+await section("token overview 'YAP'", "/tokens/cUSDT/overview", (j) => console.log("   ", clip(j, 500)));
 
 for (const [label, p] of [["cusdt-admin", admin], ["cusdt-alice", ALICE], ["cusdt-mzf-carol (other node)", CAROL]]) {
   await section(`party ${label}`, `/parties/${enc(p)}`, (j) => console.log("   ", clip(Object.fromEntries(Object.entries(j).filter(([k]) => /id|address|hosted|multi|name|type|created|first|last|balance/i.test(k))), 450)));

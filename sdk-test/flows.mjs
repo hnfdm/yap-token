@@ -12,7 +12,7 @@ const token = await getToken();
 const auth = { method: "static", token };
 const sdk = await (await SDK.create({ auth, ledgerClientUrl: need("LEDGER_URL") }))
   .extend({ token: { auth, registries: [REGISTRY], registryAuth: "none" } });
-const asset = (await sdk.token.assets()).find((a) => a.id === "cUSDT");
+const asset = (await sdk.token.assets()).find((a) => a.id === "YAP");
 
 let n = 0;
 const submit = async (parties, [cmds, disclosed]) =>
@@ -28,7 +28,7 @@ async function step(name, fn) { try { await fn(); } catch (e) { fail++; console.
 const A0 = total(await holdings(ALICE)), B0 = total(await holdings(BOB));
 console.log(`start: alice ${A0}, bob ${B0}\n`);
 
-const xfer = (sender, recipient, amount) => sdk.token.transfer.create({ sender, recipient, amount: String(amount), instrumentId: "cUSDT", registryUrl: REGISTRY });
+const xfer = (sender, recipient, amount) => sdk.token.transfer.create({ sender, recipient, amount: String(amount), instrumentId: "YAP", registryUrl: REGISTRY });
 
 // 1. offer -> pending visible through the TransferInstruction view -> accept
 await step("offer + accept", async () => {
@@ -84,7 +84,7 @@ await step("allocation", async () => {
   const mkSpec = (ref, amount) => ({
     settlement: { executor: admin, settlementRef: { id: ref, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(600_000), settleBefore: iso(1_200_000), meta: { values: {} } },
     transferLegId: "leg-1",
-    transferLeg: { sender: ALICE, receiver: BOB, amount: String(amount), instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } },
+    transferLeg: { sender: ALICE, receiver: BOB, amount: String(amount), instrumentId: { admin, id: "YAP" }, meta: { values: {} } },
   });
   const create = async (ref, amount) => {
     const r = await sdk.token.allocation.instruction.create({ allocationSpecification: mkSpec(ref, amount), asset });

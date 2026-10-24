@@ -8,7 +8,7 @@ if (OURS.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, BOB = `cusdt-bob::${sfx}`;
 const R = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const TF = "/registry/transfer-instruction/v1/transfer-factory", AF = "/registry/allocation-instruction/v1/allocation-factory";
-const inst = { admin, id: "cUSDT" };
+const inst = { admin, id: "YAP" };
 const goodT = () => ({ choiceArguments: { expectedAdmin: admin, transfer: { sender: ALICE, receiver: BOB, amount: "0.000001", instrumentId: inst, requestedAt: new Date().toISOString(), executeBefore: new Date(Date.now() + 36e5).toISOString(), inputHoldingCids: [], meta: { values: {} } } } });
 const goodA = () => ({ choiceArguments: { expectedAdmin: admin, allocation: { settlement: { executor: admin }, transferLegId: "l", transferLeg: { sender: ALICE, receiver: BOB, amount: "0.000001", instrumentId: inst } } } });
 const withT = (patch) => { const b = goodT(); Object.assign(b.choiceArguments.transfer, patch); return b; };
@@ -37,7 +37,7 @@ for (const [n, b] of [
   ["transfer = {} with right admin", { choiceArguments: { expectedAdmin: admin, transfer: {} } }],
   ["expectedAdmin missing", { choiceArguments: { transfer: goodT().choiceArguments.transfer } }], ["expectedAdmin wrong", { choiceArguments: { ...goodT().choiceArguments, expectedAdmin: "someone::1220" } }],
   ["expectedAdmin = number", { choiceArguments: { ...goodT().choiceArguments, expectedAdmin: 7 } }],
-  ["instrumentId missing", withT({ instrumentId: undefined })], ["instrumentId = string", withT({ instrumentId: "cUSDT" })], ["unknown instrument id", withT({ instrumentId: { admin, id: "NOPE" } })], ["instrument admin wrong", withT({ instrumentId: { admin: "x", id: "cUSDT" } })],
+  ["instrumentId missing", withT({ instrumentId: undefined })], ["instrumentId = string", withT({ instrumentId: "YAP" })], ["unknown instrument id", withT({ instrumentId: { admin, id: "NOPE" } })], ["instrument admin wrong", withT({ instrumentId: { admin: "x", id: "YAP" } })],
   ["receiver = null", withT({ receiver: null })], ["receiver = number", withT({ receiver: 5 })], ["receiver = object", withT({ receiver: { $ne: "" } })], ["receiver = array", withT({ receiver: [BOB] })], ["receiver = empty string", withT({ receiver: "" })],
   ["receiver = huge string", withT({ receiver: "a".repeat(100_000) })], ["receiver with quotes/backslashes", withT({ receiver: 'x"\\\'; DROP--' })], ["receiver = unknown party", withT({ receiver: "nobody::1220deadbeef" })],
   ["sender = receiver (self path)", withT({ receiver: ALICE })], ["sender = null", withT({ sender: null })],

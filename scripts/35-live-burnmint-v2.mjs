@@ -18,7 +18,7 @@ const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 const mu = (c) => Math.round(Number(c.createArgument.amount) * 1e6);
 const amt = (m) => (m / 1e6).toFixed(10);
-const inst = { admin, id: "cUSDT" };
+const inst = { admin, id: "YAP" };
 const noCtx = { context: { values: {} }, meta: { values: {} } };
 const acct = (p) => ({ owner: p, provider: null, id: "" });
 let pass = 0, fail = 0, txs = 0;

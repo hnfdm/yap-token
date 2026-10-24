@@ -15,7 +15,7 @@ const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cry
 const token = await getToken();
 const auth = { method: "static", token };
 const sdk = await (await SDK.create({ auth, ledgerClientUrl: need("LEDGER_URL") })).extend({ token: { auth, registries: [REGISTRY], registryAuth: "none" } });
-const asset = (await sdk.token.assets()).find((a) => a.id === "cUSDT");
+const asset = (await sdk.token.assets()).find((a) => a.id === "YAP");
 const short = (e) => String(e?.message ?? e?.response?.data ?? e).replace(/\s+/g, " ");
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
 const bal = async (p) => (await sdk.token.utxos.list({ partyId: p, includeLocked: true })).reduce((s, h) => s + Math.round(Number(h.interfaceViewValue.amount) * 1e6), 0);
@@ -29,7 +29,7 @@ out(`start: ext-alice ${a0} micro, internal bob ${b0} micro`);
 // 1. the external sender creates the allocation (single external authority: always worked)
 const ref = `mixset-${Date.now()}`;
 const spec = { settlement: { executor: admin, settlementRef: { id: ref, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(3_600_000), settleBefore: iso(7_200_000), meta: { values: {} } },
-  transferLegId: "leg-1", transferLeg: { sender: EA.partyId, receiver: IB, amount: "0.000001", instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } };
+  transferLegId: "leg-1", transferLeg: { sender: EA.partyId, receiver: IB, amount: "0.000001", instrumentId: { admin, id: "YAP" }, meta: { values: {} } } };
 const [cmd0, disc0] = await sdk.token.allocation.instruction.create({ allocationSpecification: spec, asset });
 await sdk.ledger.prepare({ partyId: EA.partyId, commands: [cmd0], disclosedContracts: disc0 ?? [], commandId: `mixset-c-${Date.now()}` }).sign(EA.privateKey).execute({ partyId: EA.partyId });
 const alloc = (await sdk.token.allocation.pending(EA.partyId)).find((p) => p.interfaceViewValue.allocation.settlement.settlementRef.id === ref);

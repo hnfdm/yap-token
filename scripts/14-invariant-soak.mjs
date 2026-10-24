@@ -46,7 +46,7 @@ const violations = (S) => checkInvariants(S, expected);
 const post = (path, body) => retry(async () => { const r = await fetch(`${registry}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); if (!r.ok) throw new Error(`registry ${r.status}`); return r.json(); });
 function inputsFor(S, p, needMu) { let acc = 0; const out = []; for (const h of shuffle(free(S, p))) { out.push(h); acc += mu(h.createArgument.amount); if (acc >= needMu) return out; } return null; }
 async function transfer(sender, receiver, amount, inputs) {
-  const t = { sender, receiver, amount, instrumentId: { admin, id: "cUSDT" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: inputs.map((h) => h.contractId), meta: { values: {} } };
+  const t = { sender, receiver, amount, instrumentId: { admin, id: "YAP" }, requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: inputs.map((h) => h.contractId), meta: { values: {} } };
   const f = await post("/registry/transfer-instruction/v1/transfer-factory", { choiceArguments: { expectedAdmin: admin, transfer: t } });
   await submit(token, { actAs: [sender], label: "soak-t", disclosedContracts: f.choiceContext.disclosedContracts,
     commands: [{ ExerciseCommand: { templateId: IF_TF, contractId: f.factoryId, choice: "TransferFactory_Transfer",
@@ -54,7 +54,7 @@ async function transfer(sender, receiver, amount, inputs) {
 }
 async function allocate(sender, receiver, amount, inputs, ref) {
   const spec = { settlement: { executor: admin, settlementRef: { id: ref, cid: null }, requestedAt: iso(-30_000), allocateBefore: iso(3_600_000), settleBefore: iso(7_200_000), meta: { values: {} } },
-    transferLegId: "leg-1", transferLeg: { sender, receiver, amount, instrumentId: { admin, id: "cUSDT" }, meta: { values: {} } } };
+    transferLegId: "leg-1", transferLeg: { sender, receiver, amount, instrumentId: { admin, id: "YAP" }, meta: { values: {} } } };
   const args = { expectedAdmin: admin, allocation: spec, requestedAt: iso(-30_000), inputHoldingCids: inputs.map((h) => h.contractId) };
   const f = await post("/registry/allocation-instruction/v1/allocation-factory", { choiceArguments: args });
   await submit(token, { actAs: [sender], label: "soak-a", disclosedContracts: f.choiceContext.disclosedContracts,

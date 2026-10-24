@@ -26,14 +26,14 @@ function spec(sender, receiver, amount, o = {}) {
     settlement: { executor: admin, settlementRef: { id: o.ref ?? `alloc-test-${Date.now()}-${n++}`, cid: null },
       requestedAt: iso(-30_000), allocateBefore: o.allocateBefore ?? iso(600_000), settleBefore: o.settleBefore ?? iso(1_200_000), meta: { values: {} } },
     transferLegId: "leg-1",
-    transferLeg: { sender, receiver, amount: Number(amount).toFixed(10), instrumentId: o.instrumentId ?? { admin, id: "cUSDT" }, meta: { values: {} } },
+    transferLeg: { sender, receiver, amount: Number(amount).toFixed(10), instrumentId: o.instrumentId ?? { admin, id: "YAP" }, meta: { values: {} } },
   };
 }
 async function allocate(actAs, sp, inputs, o = {}) {
   const args = { expectedAdmin: o.expectedAdmin ?? admin, allocation: sp, requestedAt: iso(-30_000), inputHoldingCids: inputs.map((h) => h.contractId) };
   const fr = await fetch(`${registry}/registry/allocation-instruction/v1/allocation-factory`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ choiceArguments: { ...args, expectedAdmin: admin, allocation: { ...sp, transferLeg: { ...sp.transferLeg, instrumentId: { admin, id: "cUSDT" } } } } }) });
+    body: JSON.stringify({ choiceArguments: { ...args, expectedAdmin: admin, allocation: { ...sp, transferLeg: { ...sp.transferLeg, instrumentId: { admin, id: "YAP" } } } } }) });
   if (!fr.ok) throw new Error(`registry ${fr.status}`);
   const f = await fr.json();
   return submit(token, { actAs: [actAs], label: "alloc", disclosedContracts: f.choiceContext.disclosedContracts,
@@ -72,7 +72,7 @@ ok("allocation view lists the locked holding", al.createArgument.lockedCid === l
 
 // B. locked funds cannot be spent
 await mustFail("locked holding cannot be used as transfer input", "locked", async () => {
-  const t = { sender: ALICE, receiver: BOB, amount: "1.0000000000", instrumentId: { admin, id: "cUSDT" },
+  const t = { sender: ALICE, receiver: BOB, amount: "1.0000000000", instrumentId: { admin, id: "YAP" },
     requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: [locked[0].contractId], meta: { values: {} } };
   const f = await (await fetch(`${registry}/registry/transfer-instruction/v1/transfer-factory`, { method: "POST",
     headers: { "Content-Type": "application/json" }, body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: t } }) })).json();
@@ -131,7 +131,7 @@ ok("balances untouched by failed attempts", sum(await free(ALICE)) === A0 - 10);
 // restore: bob returns the 10
 {
   const bobFree = await free(BOB);
-  const t = { sender: BOB, receiver: ALICE, amount: "10.0000000000", instrumentId: { admin, id: "cUSDT" },
+  const t = { sender: BOB, receiver: ALICE, amount: "10.0000000000", instrumentId: { admin, id: "YAP" },
     requestedAt: iso(-30_000), executeBefore: iso(3_600_000), inputHoldingCids: bobFree.map((h) => h.contractId), meta: { values: {} } };
   const f = await (await fetch(`${registry}/registry/transfer-instruction/v1/transfer-factory`, { method: "POST",
     headers: { "Content-Type": "application/json" }, body: JSON.stringify({ choiceArguments: { expectedAdmin: admin, transfer: t } }) })).json();

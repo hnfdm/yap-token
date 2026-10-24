@@ -9,7 +9,7 @@ const E = loadEnv(".env.testnet"); if (E.INSECURE_TLS === "1") process.env.NODE_
 const n = node(E, "t1"), admin = E.CUSDT_ADMIN_PARTY, ALICE = E.CUSDT_ALICE, OP = E.CUSDT_OPERATOR;
 const P = "#cusdt-token:CusdtToken:", HOLD = P + "CusdtHolding", ADM = P + "CusdtAdmin", OPA = P + "CusdtOperatorAuthority", BMF = P + "CusdtBurnMintFactory";
 const I_BM = "#splice-api-token-burn-mint-v1:Splice.Api.Token.BurnMintV1:BurnMintFactory";
-const inst = { admin, id: "cUSDT" }, noCtx = { context: { values: {} }, meta: { values: {} } };
+const inst = { admin, id: "YAP" }, noCtx = { context: { values: {} }, meta: { values: {} } };
 const amt = (m) => (m / 1e6).toFixed(10), mu = (c) => Math.round(Number(c.createArgument.amount) * 1e6);
 const ex = (templateId, contractId, choice, choiceArgument = {}) => ({ ExerciseCommand: { templateId, contractId, choice, choiceArgument } });
 const iso = (ms) => new Date(Date.now() + ms).toISOString();

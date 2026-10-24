@@ -1,6 +1,6 @@
--- cUSDT governance actions for a multi-owner (decentralized) admin party.
+-- YAP governance actions for a multi-owner (decentralized) admin party.
 --
--- The cUSDT admin ("governor") can be a Canton decentralized party managed with the Decentralization Manager (DecMan): no single node can
+-- The YAP admin ("governor") can be a Canton decentralized party managed with the Decentralization Manager (DecMan): no single node can
 -- act as it. The only way to use its authority is a governed action: a member creates one of the proposal contracts below (signatory =
 -- the member, observer = the governance party), enough members confirm it, and GovernanceRules executes it, which calls `executeImpl`
 -- with the authority of the governance party.
@@ -19,6 +19,7 @@ import Governance.Action
 import Splice.Api.Token.BurnMintV1 qualified as BM
 import Splice.Api.Token.HoldingV1 qualified as H
 import Splice.Api.Token.MetadataV1 qualified as M
+import Splice.Api.Token.TransferInstructionV1 qualified as TI
 
 -- Appoint an operator (or add one more authority for an operator that already has one, e.g. a top-up or a second lane).
 template AppointOperatorProposal
@@ -39,7 +40,7 @@ template AppointOperatorProposal
         governanceParty
         proposer
         actionLabel = "CusdtAppointOperator"
-        description = "Appoint cUSDT operator " <> show operator <> " with allowance " <> show allowance <> " until " <> show validUntil
+        description = "Appoint YAP operator " <> show operator <> " with allowance " <> show allowance <> " until " <> show validUntil
       executeImpl = do
         a <- fetch adminCid
         assertMsg "the CusdtAdmin contract belongs to another party" (a.admin == governanceParty)
@@ -64,7 +65,7 @@ template SetOperatorAllowanceProposal
         governanceParty
         proposer
         actionLabel = "CusdtSetOperatorAllowance"
-        description = "Set cUSDT operator allowance to " <> show newAllowance <> " until " <> show newValidUntil
+        description = "Set YAP operator allowance to " <> show newAllowance <> " until " <> show newValidUntil
       executeImpl = do
         a <- fetch authorityCid
         assertMsg "the operator authority belongs to another party" (a.admin == governanceParty)
@@ -86,7 +87,7 @@ template RevokeOperatorProposal
         governanceParty
         proposer
         actionLabel = "CusdtRevokeOperator"
-        description = "Revoke a cUSDT operator authority"
+        description = "Revoke a YAP operator authority"
       executeImpl = do
         a <- fetch authorityCid
         assertMsg "the operator authority belongs to another party" (a.admin == governanceParty)
@@ -107,7 +108,7 @@ template RevokeVestingProposal
         governanceParty
         proposer
         actionLabel = "CusdtRevokeVesting"
-        description = "Revoke a cUSDT vesting grant"
+        description = "Revoke a YAP vesting grant"
       executeImpl = do
         v <- fetch vestingCid
         assertMsg "the vesting belongs to another party" (v.admin == governanceParty)
@@ -132,7 +133,7 @@ template GovernorMintProposal
         governanceParty
         proposer
         actionLabel = "CusdtGovernorMint"
-        description = "Mint " <> show amount <> " cUSDT for " <> show recipient
+        description = "Mint " <> show amount <> " YAP for " <> show recipient
       executeImpl = do
         a <- fetch adminCid
         assertMsg "the CusdtAdmin contract belongs to another party" (a.admin == governanceParty)
@@ -157,7 +158,7 @@ template RescueHoldingProposal
         governanceParty
         proposer
         actionLabel = "CusdtRescueHolding"
-        description = "Archive a cUSDT holding. Reason: " <> reason
+        description = "Archive a YAP holding. Reason: " <> reason
       executeImpl = do
         h <- fetch holdingCid
         assertMsg "the holding belongs to another issuer" (h.admin == governanceParty)
@@ -182,7 +183,7 @@ template BurnTreasuryProposal
         governanceParty
         proposer
         actionLabel = "CusdtBurnTreasury"
-        description = "Burn " <> show (length holdingCids) <> " cUSDT treasury holding(s) owned by the governance party"
+        description = "Burn " <> show (length holdingCids) <> " YAP treasury holding(s) owned by the governance party"
       executeImpl = do
         f <- fetch factoryCid
         assertMsg "the BurnMint factory belongs to another party" (f.admin == governanceParty)
@@ -196,6 +197,78 @@ template BurnTreasuryProposal
           inputHoldingCids = map (toInterfaceContractId @H.Holding) holdingCids
           outputs = []
           extraActors = [governanceParty]
+          extraArgs = M.ExtraArgs with
+            context = M.ChoiceContext with values = TextMap.empty
+            meta = M.emptyMetadata
+        pure ()
+
+-- Fixed-supply vesting grant: funded from the governance party's own treasury holdings (no new tokens are created).
+template GrantVestingFromTreasuryProposal
+  with
+    governanceParty : Party
+    proposer        : Party
+    adminCid        : ContractId CusdtAdmin
+    treasuryCids    : [ContractId CusdtHolding]
+    beneficiary     : Party
+    amount          : Decimal
+    start           : Time
+    cliff           : Time
+    finish          : Time
+    revocable       : Bool
+  where
+    signatory proposer
+    observer governanceParty
+    ensure amount > 0.0 && not (null treasuryCids)
+
+    interface instance GovernableAction for GrantVestingFromTreasuryProposal where
+      view = GovernableActionView with
+        governanceParty
+        proposer
+        actionLabel = "CusdtGrantVestingFromTreasury"
+        description = "Grant " <> show amount <> " YAP from the treasury to " <> show beneficiary <> ", vesting until " <> show finish <> (if revocable then " (revocable)" else " (not revocable)")
+      executeImpl = do
+        a <- fetch adminCid
+        assertMsg "the YAP admin contract belongs to another party" (a.admin == governanceParty)
+        _ <- exercise adminCid CusdtAdmin_GrantVestingFromTreasury with beneficiary, amount, start, cliff, finish, revocable, treasuryCids
+        pure ()
+
+-- Send tokens from the governance party's treasury to someone (an OFFER: the receiver accepts it, as with any transfer). With a fixed
+-- supply this is how the treasury is distributed. The sender is the governance party, so this is only possible as a governed action.
+template TreasuryTransferProposal
+  with
+    governanceParty : Party
+    proposer        : Party
+    factoryCid      : ContractId CusdtTransferFactory
+    receiver        : Party
+    amount          : Decimal
+    treasuryCids    : [ContractId CusdtHolding]
+    executeBefore   : Time
+  where
+    signatory proposer
+    observer governanceParty
+    ensure amount > 0.0 && not (null treasuryCids) && receiver /= governanceParty
+
+    interface instance GovernableAction for TreasuryTransferProposal where
+      view = GovernableActionView with
+        governanceParty
+        proposer
+        actionLabel = "CusdtTreasuryTransfer"
+        description = "Send " <> show amount <> " YAP from the treasury to " <> show receiver
+      executeImpl = do
+        f <- fetch factoryCid
+        assertMsg "the transfer factory belongs to another party" (f.admin == governanceParty)
+        now <- getTime
+        _ <- exercise (toInterfaceContractId @TI.TransferFactory factoryCid) TI.TransferFactory_Transfer with
+          expectedAdmin = governanceParty
+          transfer = TI.Transfer with
+            sender = governanceParty
+            receiver
+            amount
+            instrumentId = cusdtInstrumentId governanceParty
+            requestedAt = now
+            executeBefore
+            inputHoldingCids = map (toInterfaceContractId @H.Holding) treasuryCids
+            meta = M.emptyMetadata
           extraArgs = M.ExtraArgs with
             context = M.ChoiceContext with values = TextMap.empty
             meta = M.emptyMetadata

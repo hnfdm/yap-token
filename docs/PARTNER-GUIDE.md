@@ -1,113 +1,113 @@
-# Panduan mitra: ikut menandatangani keputusan governor YAP
+# Partner guide: co-signing the YAP governor
 
-Dokumen ini untuk pihak independen yang akan menjalankan **satu node** dan memegang **satu kunci** dari governor token YAP di Canton. Anda tidak perlu paham Daml. Anda perlu paham tiga hal: apa yang Anda pegang, apa yang harus diperiksa sebelum menyetujui, dan bagaimana menjaga node Anda.
+This guide is for an independent party who will run **one node** and hold **one key** of the YAP governor on Canton. You do not need to know Daml. You need to understand three things: what you hold, what to check before you approve anything, and how to keep your node safe.
 
-> Status: semua langkah di bagian 3–5 dan 7 sudah dijalankan di testnet dengan dua node (keduanya milik satu operator). Bagian 6 (bergabung ke party yang sudah ada) **belum pernah diuji** dan akan dilatih bersama sebelum dipakai sungguhan. Tidak untuk mainnet sebelum ada audit.
+> Status: everything in sections 3 to 5 and 7 has been run on testnet with two nodes (both operated by one person). Section 6 (joining an existing party) has **not been rehearsed yet** and will be practised together before it is used for real. Not for mainnet before an audit.
 
 ---
 
-## 1. Peran Anda
+## 1. Your role
 
-YAP punya satu pihak penerbit, disebut **governor**. Governor ini adalah *party terdesentralisasi*: bukan satu akun milik satu orang, tetapi satu identitas yang dimiliki beberapa node bersama. Setiap node memegang satu kunci. Sebuah keputusan baru berlaku kalau **jumlah minimum node (threshold) menyetujuinya**.
+YAP has a single issuing authority, called the **governor**. The governor is a *decentralized party*: not one account owned by one person, but one identity owned jointly by several nodes. Each node holds one key. A decision only takes effect when **at least the threshold number of nodes approve it**.
 
-- Satu node **tidak bisa** bertindak sendirian atas nama governor. Ini sudah diuji: perintah langsung dari satu node ditolak, dan eksekusi dengan kurang dari threshold ditolak oleh ledger.
-- Anda **tidak** memegang token siapa pun. Pemilik token (pool, penerima vesting, pengguna) tetap mengendalikan holding mereka.
-- Yang diputuskan lewat governor adalah hal yang jarang: mengangkat atau mencabut operator harian, membatalkan vesting yang bisa dicabut, membakar token milik treasury, menyelamatkan holding (mengarsipkannya), mencetak langsung, dan alokasi besar dari treasury.
-- Mencetak token baru oleh governor (`GovernorMint`) bertentangan dengan pasokan tetap 100.000.000 YAP. Perlakukan sebagai **tanda bahaya**, lihat bagian 7.
+- A single node **cannot** act alone on behalf of the governor. This was tested: a direct command from one node is refused, and an execution with fewer than the threshold confirmations is refused by the ledger.
+- You do **not** hold anyone's tokens. Token owners (pools, vesting beneficiaries, users) keep control of their own holdings.
+- What goes through the governor is rare: appointing or revoking the day-to-day operator, revoking vestings that are revocable, burning tokens owned by the treasury, rescuing a holding (archiving it), minting directly, and large allocations out of the treasury.
+- Minting new tokens through the governor (`GovernorMint`) contradicts the fixed supply of 100,000,000 YAP. Treat it as a **red flag**, see section 7.
 
-Yang tetap berjalan tanpa Anda: transfer, klaim vesting oleh penerima, pembakaran oleh pemilik. Yang berhenti kalau Anda tidak tersedia (pada susunan 2-dari-2): semua keputusan governor di atas.
+What keeps working without you: transfers, vesting claims by beneficiaries, burns by owners. What stops if you are unavailable (in a 2-of-2 setup): every governor decision listed above.
 
-## 2. Yang Anda pertaruhkan
+## 2. What you put at stake
 
-- **Ketersediaan.** Kalau node atau kunci Anda hilang dan susunannya 2-dari-2, keputusan governor macet. Susunan 2-dari-3 menghindari ini.
-- **Keamanan.** Kalau node Anda dibobol, penyerang memegang satu kunci. Itu belum cukup untuk bertindak, tetapi menurunkan ambang keamanan menjadi satu kunci lagi.
-- **Tanggung jawab.** Anda menyetujui keputusan atas nama bersama. Jangan menyetujui apa yang tidak Anda baca.
+- **Availability.** If your node or key is lost and the setup is 2-of-2, governor decisions are stuck. A 2-of-3 setup avoids this.
+- **Security.** If your node is compromised, an attacker holds one key. That is not enough to act, but it lowers the bar to one more key.
+- **Responsibility.** You approve decisions on behalf of the group. Do not approve what you have not read.
 
-## 3. Persyaratan
+## 3. Requirements
 
-- Sebuah **validator Splice** yang berjalan di jaringan yang sama dengan Canton **3.6.1** (versi bundel Splice 0.9.x, sama dengan node lain). Anda memegang akses root sendiri; tidak ada orang lain, termasuk operator lain, yang boleh punya akses ke node itu.
-- Docker dan Docker Compose. 8 GB RAM sudah cukup untuk validator + DecMan.
-- SSH hanya dengan kunci, tanpa kata sandi. Firewall aktif.
-- Satu port publik untuk DecMan (**9000/TCP, protokol Noise**), dibuka **hanya untuk IP node lain**, bukan untuk semua orang.
-- Kanal komunikasi tepercaya dengan operator lain (panggilan video atau pesan terenkripsi) untuk menukar data peer dan memverifikasinya.
+- A **Splice validator** on the same network and the same Canton version (**3.6.1**, Splice bundle 0.9.x) as the other nodes. You hold root access yourself; nobody else, including the other operators, may have access to that node.
+- Docker and Docker Compose. 8 GB of RAM is enough for the validator plus DecMan.
+- SSH with keys only, no passwords. A firewall that is on.
+- One public port for DecMan (**9000/TCP, the Noise protocol**), open **only to the other nodes' IP addresses**, not to everyone.
+- A trusted communication channel with the other operators (a video call or an encrypted messenger) to exchange peer data and verify it.
 
-## 4. Memasang DecMan di node Anda
+## 4. Installing DecMan on your node
 
-Software: **Decentralization Manager** (DLC-Link/BitSafe), open source. Kami memakai image yang dipin ke satu versi dan satu digest:
+Software: the **Decentralization Manager** (DLC-Link/BitSafe), open source. We use an image pinned to one version and one digest:
 
 ```
 public.ecr.aws/dlc-link/decentralization-manager:v1.13.0-nonroot
 sha256:5a00d8b57e3c8187e9d1e4e604a78dc4607bead7eda7c166ca0128e3ddc7d9a9
 ```
 
-Periksa digest sendiri setelah `docker pull` (`docker image inspect`). Software ini mendapat akses ke Admin API dan Ledger API participant Anda, jadi perlakukan sama seperti software berhak istimewa lain.
+Check the digest yourself after `docker pull` (`docker image inspect`). The software gets access to your participant's Admin API and Ledger API, so treat it like any other privileged software.
 
-Skrip siap pakai ada di repositori ini (`deploy/templates/decman-*.sh.in`; `node deploy/generate.mjs` membuatnya di `deploy/out/`). Jalankan di node Anda, berurutan:
+Ready-made scripts are in this repository (`deploy/templates/decman-*.sh.in`; `node deploy/generate.mjs` writes them to `deploy/out/`). Run them on your node, in this order:
 
-1. `decman-discover-on-vps.sh`: survei hanya-baca (nama jaringan Docker, container participant, port yang dipakai). Tidak mengubah apa pun.
-2. `decman-install-on-vps.sh <IP-publik-Anda> <IP-node-lain>`: memasang container DecMan di samping validator. UI hanya di `127.0.0.1:18080`. Port 9000 hanya menerima IP node lain. **Tidak** menyentuh stack validator dan **tidak** me-restart apa pun milik validator.
-3. `decman-api-on-vps.sh`: DecMan memercayai klien Keycloak milik validator Anda sendiri, sehingga semua operasi bisa dijalankan dengan `curl` dari server, tanpa membuka UI.
-4. `decman-harden-on-vps.sh <IP-node-lain>`: aturan firewall yang bertahan setelah reboot, plus **cadangan terenkripsi** `/opt/decman` (kunci enkripsi database dan kunci Noise ada di sana).
+1. `decman-discover-on-vps.sh`: a read-only survey (Docker network name, participant container, ports in use). It changes nothing.
+2. `decman-install-on-vps.sh <your-public-IP> <other-node-IP>`: installs the DecMan container next to the validator. The UI is bound to `127.0.0.1:18080` only. Port 9000 accepts only the other node's IP. It does **not** touch the validator stack and does **not** restart anything that belongs to the validator.
+3. `decman-api-on-vps.sh`: makes DecMan trust your own validator's Keycloak client, so every operation can be done with `curl` from the server, without opening the UI.
+4. `decman-harden-on-vps.sh <other-node-IP>`: a firewall rule that survives a reboot, plus an **encrypted backup** of `/opt/decman` (the database encryption key and the Noise key live there).
 
-Catatan: skrip mengasumsikan struktur validator Splice yang sama dengan node kami (jaringan Docker `splice-validator_splice_validator`, container `splice-validator-participant-1`). Kalau berbeda, jalankan langkah 1 dulu dan kabari kami hasilnya sebelum lanjut.
+Note: the scripts assume the same validator layout as our nodes (Docker network `splice-validator_splice_validator`, container `splice-validator-participant-1`). If yours differs, run step 1 first and send us the result before going further.
 
-## 5. Menukar data peer (penting untuk keamanan)
+## 5. Exchanging peer data (important for security)
 
-Setiap node hanya menerima koneksi dari peer yang ada di daftarnya, dan kunci publik Noise peer dipakai untuk handshake. Salah kunci berarti koneksi gagal, dan kunci palsu berarti Anda terhubung ke pihak yang salah.
+Each node only accepts connections from peers in its own list, and the peer's Noise public key is used for the handshake. A wrong key means the connection fails; a forged key means you are connected to the wrong party.
 
-1. Ambil data Anda: `source /opt/decman/api.sh; api GET /node-config` (ID participant) dan `api GET /keys/status` (kunci publik Noise).
-2. Kirim **ID participant, alamat IP publik, port, dan kunci publik Noise** ke operator lain lewat kanal yang terverifikasi. Bacakan **beberapa karakter terakhir kunci** lewat panggilan suara atau video supaya pasti tidak diganti di perjalanan.
-3. Tambahkan peer mereka dengan `decman-peers-on-vps.sh` (isinya satu baris data peer per node), lalu periksa `api GET /participants-status`. Status harus `Connected`.
+1. Get your own data: `source /opt/decman/api.sh; api GET /node-config` (participant ID) and `api GET /keys/status` (Noise public key).
+2. Send your **participant ID, public IP address, port and Noise public key** to the other operators over a verified channel. Read **the last few characters of the key** aloud over a call so you know it was not swapped on the way.
+3. Add their peer with `decman-peers-on-vps.sh` (one line of peer data per node), then check `api GET /participants-status`. The status must be `Connected`.
 
-## 6. Bergabung ke party governor (belum diuji)
+## 6. Joining the governor party (not yet rehearsed)
 
-Alurnya memakai fitur DecMan "add member": operator yang sudah ada memulai prosedur, Anda menerima undangan, lalu setiap node menandatangani perubahan topologi. Setelah itu anggota daftar `GovernanceRules` (yang menentukan siapa yang boleh menyetujui keputusan) diperbarui lewat keputusan governance biasa.
+The flow uses DecMan's "add member" feature: an existing operator starts the procedure, you accept the invitation, and every node signs the topology change. Afterwards the member list of `GovernanceRules` (which decides who may approve decisions) is updated through an ordinary governance decision.
 
-Sebelum menerima undangan apa pun, periksa: **awalan (prefix) party**, **daftar peserta**, dan **threshold baru**. Cocokkan dengan kesepakatan yang sudah dibuat di luar sistem. Kami akan melatih alur ini di testnet bersama Anda sebelum dipakai.
+Before accepting any invitation, check the **party prefix**, the **list of participants** and the **new threshold**. Compare them with what was agreed outside the system. We will rehearse this flow on testnet with you before it is used for real.
 
-## 7. Menyetujui keputusan: apa yang diperiksa
+## 7. Approving decisions: what to check
 
-Setiap keputusan adalah sebuah *proposal*. DecMan hanya menampilkan **judul dan deskripsi pendek**; isi sebenarnya (siapa, berapa, kapan) ada di kontrak di ledger. **Jangan menyetujui hanya dari deskripsi.** Baca isi proposal dari ledger dengan `node scripts/show-allocation-proposal.mjs` (untuk alokasi) atau minta operator mengirim isinya, lalu cocokkan dengan keputusan yang disepakati.
+Every decision is a *proposal*. DecMan only shows a **title and a short description**; the real content (who, how much, when) lives in the contract on the ledger. **Do not approve from the description alone.** Read the proposal from the ledger with `node scripts/show-allocation-proposal.mjs` (for allocations), or ask the operator to send you the content, and compare it with the decision that was agreed.
 
-| Label di DecMan | Artinya | Periksa |
+| Label in DecMan | Meaning | Check |
 |---|---|---|
-| `YapAllocate` | Alokasi besar dari treasury ke banyak pool, termasuk jadwal vesting | Setiap item: pool, jumlah, mulai, selesai. Total harus sama dengan angka yang disepakati. Pasokan tetap 100.000.000 |
-| `YapGrantVestingFromTreasury` | Satu hibah vesting dari treasury | Penerima, jumlah, jadwal, bisa dicabut atau tidak |
-| `YapTreasuryTransfer` | Kirim dari treasury ke satu penerima | Penerima dan jumlah |
-| `YapAppointOperator`, `YapSetOperatorAllowance` | Mengangkat atau mengubah batas operator harian | Siapa operatornya, berapa batasnya, sampai kapan |
-| `YapRevokeOperator` | Mencabut operator | Memang disepakati |
-| `YapRevokeVesting` | Membatalkan hibah (hanya yang ditandai bisa dicabut) | Penerima dan alasannya |
-| `YapBurnTreasury` | Membakar token milik treasury | Jumlah, alasan |
-| `YapRescueHolding` | Mengarsipkan holding seseorang | **Hanya** dengan alasan tertulis yang jelas (misalnya token dilaporkan dicuri) |
-| `YapGovernorMint` | Mencetak token baru | **Tolak**, kecuali ada keputusan tertulis untuk mengubah pasokan tetap |
+| `YapAllocate` | A large allocation from the treasury to several pools, including vesting schedules | Every item: pool, amount, start, end. The total must equal the agreed figure. The supply stays at 100,000,000 |
+| `YapGrantVestingFromTreasury` | One vesting grant out of the treasury | Beneficiary, amount, schedule, revocable or not |
+| `YapTreasuryTransfer` | Send from the treasury to one recipient | Recipient and amount |
+| `YapAppointOperator`, `YapSetOperatorAllowance` | Appoint or change the limits of the day-to-day operator | Who the operator is, the limit, until when |
+| `YapRevokeOperator` | Revoke an operator | It was agreed |
+| `YapRevokeVesting` | Cancel a grant (only grants marked revocable) | The beneficiary and the reason |
+| `YapBurnTreasury` | Burn tokens owned by the treasury | Amount, reason |
+| `YapRescueHolding` | Archive someone's holding | **Only** with a clear written reason (for example tokens reported stolen) |
+| `YapGovernorMint` | Mint new tokens | **Refuse**, unless there is a written decision to change the fixed supply |
 
-Aturan umum:
+General rules:
 
-- Konfirmasi **kedaluwarsa dalam 30 menit**. Jangan terburu-buru karena itu.
-- Beberapa proposal bisa terbuka bersamaan. Selalu sebut **label**-nya saat mengonfirmasi (`bash decman-vote-on-vps.sh confirm <label>`), jangan mengonfirmasi "yang pertama". Perintah `confirm-all` memakai jeda 15 detik dan menampilkan daftar; pakai hanya kalau semua proposal terbuka sudah Anda periksa.
-- Setelah eksekusi, periksa hasilnya: total pasokan harus tetap 100.000.000 YAP, dan saldo pool sesuai yang disepakati.
-- Kalau ragu, **jangan konfirmasi**. Tidak mengonfirmasi tidak merugikan siapa pun; proposal akan kedaluwarsa.
+- Confirmations **expire after 30 minutes**. Do not let that rush you.
+- Several proposals can be open at the same time. Always give the **label** when confirming (`bash decman-vote-on-vps.sh confirm <label>`); never confirm "the first one". The `confirm-all` command lists the open proposals and pauses for 15 seconds; use it only when you have already checked every open proposal.
+- After execution, check the result: the total supply must still be 100,000,000 YAP, and the pool balances must match what was agreed.
+- If in doubt, **do not confirm**. Not confirming harms nobody; the proposal simply expires.
 
-## 8. Menjaga node Anda
+## 8. Keeping your node safe
 
-- Cadangkan `/opt/decman/env`, `/opt/decman/data` (isinya `noise.key` dan database) secara terenkripsi, dan **simpan passphrase di luar server**. Tanpa kunci Noise yang sama, peer harus memperbarui data Anda.
-- Jangan membuka UI (`18080`) ke jaringan. Akses lewat terowongan SSH bila perlu.
-- Setelah reboot, pastikan `decman-fw.service` aktif dan container `decman` berjalan (`docker ps`). Status peer: `api GET /participants-status`.
-- Perbarui DecMan **bersama-sama** dengan operator lain, satu versi untuk semua (versi protokol harus sama), dan hanya ke versi yang disepakati.
-- Kalau validator Splice diperbarui, periksa kembali bahwa **autentikasi ledger API tetap aktif**. Pembaruan bundel pernah mengembalikan konfigurasi tanpa autentikasi (kejadian nyata di testnet kami). Uji dengan permintaan tanpa token: harus 401.
+- Back up `/opt/decman/env` and `/opt/decman/data` (these contain `noise.key` and the database) in encrypted form, and **keep the passphrase off the server**. Without the same Noise key, your peers have to update your entry.
+- Never expose the UI (`18080`) to a network. Reach it through an SSH tunnel if you need it.
+- After a reboot, check that `decman-fw.service` is active and the `decman` container is running (`docker ps`). Peer status: `api GET /participants-status`.
+- Upgrade DecMan **together** with the other operators, one version for all (the protocol version must match), and only to a version you agreed on.
+- When the Splice validator is upgraded, re-check that **ledger API authentication is still on**. A bundle upgrade once reset the configuration to no authentication (a real incident on our testnet). Test with a request without a token: it must answer 401.
 
-## 9. Kalau terjadi masalah
+## 9. When something goes wrong
 
-- **Node diduga dibobol:** matikan container `decman`, beri tahu operator lain **segera** lewat kanal terverifikasi, dan jangan menyetujui apa pun sampai selesai. Operator lain akan mencopot node Anda dari party (prosedur "kick") dan mengatur ulang threshold. Anda perlu memasang ulang dari host bersih, bukan "membersihkan" host yang sudah dibobol.
-- **Kehilangan kunci atau node:** beri tahu operator lain. Penggantian node adalah prosedur tersendiri (tambah anggota baru, lalu copot yang lama). Karena itu cadangan terenkripsi penting.
-- **Ingin keluar:** koordinasikan dengan operator lain. Anggota dicopot lewat prosedur "kick", dan daftar anggota `GovernanceRules` diperbarui.
+- **Your node is suspected to be compromised:** stop the `decman` container, tell the other operators **immediately** over a verified channel, and do not approve anything until it is resolved. The other operators will remove your node from the party (the "kick" procedure) and reset the threshold. You will need to reinstall from a clean host, not "clean up" the compromised one.
+- **You lose your key or node:** tell the other operators. Replacing a node is a procedure of its own (add the new member, then remove the old one). This is why the encrypted backup matters.
+- **You want to leave:** coordinate with the other operators. The member is removed with the "kick" procedure, and the `GovernanceRules` member list is updated.
 
-## 10. Daftar periksa singkat
+## 10. Short checklist
 
-- [ ] Digest image DecMan cocok, versi sama dengan operator lain
-- [ ] Port 9000 hanya terbuka untuk IP node lain; UI tidak terbuka ke jaringan
-- [ ] Data peer sudah diverifikasi lewat kanal terpisah; `participants-status` = Connected
-- [ ] Cadangan terenkripsi sudah dibuat, passphrase disimpan di luar server
-- [ ] Autentikasi ledger API aktif (permintaan tanpa token = 401)
-- [ ] Saya tahu cara memeriksa **isi** sebuah proposal, bukan hanya deskripsinya
-- [ ] Saya tahu `YapGovernorMint` tidak boleh disetujui tanpa keputusan tertulis
+- [ ] The DecMan image digest matches, and the version is the same as the other operators'
+- [ ] Port 9000 is open only to the other nodes' IPs; the UI is not exposed to any network
+- [ ] Peer data was verified over a separate channel; `participants-status` = Connected
+- [ ] An encrypted backup exists, and the passphrase is stored off the server
+- [ ] Ledger API authentication is on (a request without a token = 401)
+- [ ] I know how to check the **content** of a proposal, not just its description
+- [ ] I know that `YapGovernorMint` must not be approved without a written decision

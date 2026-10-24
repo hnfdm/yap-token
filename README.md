@@ -60,7 +60,7 @@ Every proposal names the contract it acts on, so a stale contract id makes the e
 | `scripts/` | Testnet deploy + live tests, numbered in the order you would use them (each file's header says what it does) |
 | `sdk-test/` | Drives YAP through the official `@canton-network/wallet-sdk` |
 | `deploy/` | Generator for the paste-able VPS scripts (`templates/` + `generate.mjs`; output goes to the git-ignored `deploy/out/`) |
-| `docs/PARTNER-GUIDE.md` | Guide (Indonesian) for an independent party who runs a node and holds a governor key |
+| `docs/PARTNER-GUIDE.md` | Guide for an independent party who runs a node and holds a governor key |
 
 ## Build and test (no local Daml SDK needed)
 

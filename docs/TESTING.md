@@ -1,15 +1,15 @@
 # What has been tested
 
-All testing is on **Canton testnet** (Splice 0.9.0, Canton 3.6.1). Nothing has run on mainnet and nothing has been audited externally. Last updated with `yap-token` 0.8.0 / `yap-governance` 0.4.0.
+All testing is on **Canton testnet** (Splice 0.9.0, Canton 3.6.1). Nothing has run on mainnet and nothing has been audited externally. Last updated with `yap-token` 0.9.0 / `yap-governance` 0.5.0.
 
 ## 1. Daml unit tests (Daml Script, no network)
 
 | Package | Tests | Covers |
 |---|---|---|
-| `yap-token-test` | 64 | Transfers (offer, direct, self, V1 and V2, wrong actors), allocations and delegated settlement, locks and expiry, linear vesting (cliff, linearity, revoke, close, funded from the treasury), BurnMint, operator allowance and expiry, field and precision guards |
+| `yap-token-test` | 71 | Transfers (offer, direct, self, V1 and V2, wrong actors), allocations V1 and V2 (net settlement, committed, batch guards) and delegated settlement, locks and expiry, linear vesting (cliff, linearity, revoke, close, funded from the treasury), BurnMint, operator allowance and expiry, field and precision guards |
 | `yap-governance-test` | 11 | Every governed action: appoint / set / revoke operator, revoke vesting, governor mint, rescue, burn treasury, vesting and transfer from the treasury, the atomic allocation (guards, threading of change, vesting behaviour) |
 
-**Mutation testing** (`daml/yap-token-test/mutations.py`) breaks one rule at a time and checks that some test fails. Latest full run (0.7.0): 106 mutations, 89 killed, 17 survived. 16 survivors are behaviour-neutral double guards (for example a check that the contract's own `ensure` already makes), and 1 was a real gap (operator mint precision) that now has a test. The run has not been repeated for 0.8.0 / governance 0.4.0.
+**Mutation testing** (`daml/yap-token-test/mutations.py`) breaks one rule at a time and checks that some test fails. Latest full run (0.7.0): 106 mutations, 89 killed, 17 survived. 16 survivors are behaviour-neutral double guards (for example a check that the contract's own `ensure` already makes), and 1 was a real gap (operator mint precision) that now has a test. The run has not been repeated since: the treasury vesting, the allocation proposal and Allocation V2 are not covered by it.
 
 ## 2. Live tests on the ledger
 
@@ -31,12 +31,13 @@ Each script prints its checks; most end by proving that the supply is back where
 | Governed `BurnTreasury` | `41` | 8 / 8 |
 | **YAP launch**: 100,000,000 issued once; vesting and transfer from the treasury; supply exactly 100M at every step | `42` | 12 / 12 |
 | **Tokenomics allocation** in one governed decision: nine pools, TGE share, vesting, team cannot claim before its cliff | `43` | 23 / 23 |
+| **Allocation V2** on the YAP instance: net settlement (alice pays 10, bob pays 3, net 7), mismatched legs and other settlements refused, direct settle refused, committed allocations, withdrawal; supply unchanged | `44` | 23 / 23 |
 
 ## 3. Wallet SDK and registry
 
 - Official `@canton-network/wallet-sdk` against the public YAP registry: discovery, offer, accept, reject, withdraw, UTXO merge (`sdk-test/yap-flows.mjs`, 5 / 5).
 - Earlier full flows on a single-owner admin (preapproval, allocation, external parties, dust spam): 10 / 10.
-- Registry unit test with a mock ledger: 25 / 25.
+- Registry unit test with a mock ledger: 40 / 40 (including the Allocation V2 routes and "the newest factory wins").
 
 ## 4. What testing found (and was fixed)
 
@@ -56,5 +57,5 @@ Real defects and incidents:
 - Mainnet; an external security audit; behaviour under real production load.
 - Two **independent** operators: all governor tests used two nodes run by one person. That exercises the mechanism fully, but not the security property.
 - Joining an existing decentralized party (add member), removing a member, changing the threshold.
-- A wallet or venue that speaks Token Standard V2 end to end; Allocation V2 is not implemented yet.
+- A wallet or venue that speaks Token Standard V2 end to end; Allocation V2 was tested on our own ledger only, not against any DEX or wallet.
 - Staking, fee buyback and burn, and Jobs escrow from the tokenomics: not part of this repository.

@@ -2,7 +2,7 @@
 
 Daml contracts, an off-ledger registry API and operations tooling for **$YAP** (Yapper Agent). Implements the Canton Token Standard (CIP-0056 V1 and V2). The issuer ("governor") is a **decentralized party**: no single node can act alone.
 
-> **Testnet only, never audited.** `yap-token` 0.8.0 + `yap-governance` 0.4.0. The repository was called `cusdt-token`; identifiers that already exist on a live ledger or server kept the old name (party ids `cusdt-*`, env vars `CUSDT_*`, the `cusdt-registry` service).
+> **Testnet only, never audited.** `yap-token` 0.9.0 + `yap-governance` 0.5.0. The repository was called `cusdt-token`; identifiers that already exist on a live ledger or server kept the old name (party ids `cusdt-*`, env vars `CUSDT_*`, the `cusdt-registry` service).
 
 ## Testnet instance
 
@@ -18,18 +18,18 @@ The supply cap is enforced by **governance, not by the contract**: the governor 
 
 ## How it works
 
-- **Token (`yap-token`)**: UTXO holdings with V1 + V2 views; transfers (offer, direct with a preapproval, self); allocations V1 and cross-participant settlement; BurnMint; locks; linear vesting (minted, or paid from the treasury so the supply is unchanged).
+- **Token (`yap-token`)**: UTXO holdings with V1 + V2 views; transfers (offer, direct with a preapproval, self); allocations V1 and V2 (multi-leg, net amount, committed, batch settlement through `YapSettlementFactory`) and cross-participant settlement; BurnMint; locks; linear vesting (minted, or paid from the treasury so the supply is unchanged).
 - **Operator**: a day-to-day party holding a `YapOperatorAuthority` (a shrinking mint allowance with an expiry). It cannot archive holdings, revoke vestings or raise its own limits. Mints are consuming, so parallel mints on one authority collide: re-read and retry, or appoint several authorities.
 - **Governed actions (`yap-governance`)**: a member creates a proposal, both nodes confirm, the governor executes it: `AppointOperator`, `SetOperatorAllowance`, `RevokeOperator`, `RevokeVesting`, `GovernorMint`, `RescueHolding`, `BurnTreasury`, `GrantVestingFromTreasury`, `TreasuryTransfer`, `AllocationProposal` (many releases and vestings in one atomic decision). A proposal names its target contract, so a stale id fails harmlessly.
 - **Registry (`registry/`)**: zero-dependency Node >= 18 HTTP service for wallet discovery (V2 routes only with `CUSDT_ENABLE_V2=1`).
 
-Not implemented: Allocation V2; the application mechanics of the tokenomics (staking plans, fee buyback and burn, Jobs escrow, the USDC pool).
+Not implemented: iterated allocation settlement (`nextIterationFunding` is refused with a clear message); the application mechanics of the tokenomics (staking plans, fee buyback and burn, Jobs escrow, the USDC pool).
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `daml/yap-token`, `daml/yap-token-test` | Token package, unit tests (64), `mutations.py` (106 mutations; survivors are equivalent guards) |
+| `daml/yap-token`, `daml/yap-token-test` | Token package, unit tests (71), `mutations.py` (106 mutations; survivors are equivalent guards) |
 | `daml/yap-governance`, `daml/yap-governance-test` | Governed actions, unit tests (11) |
 | `registry/` | Registry server (`test/local.mjs` runs it against a mock ledger) |
 | `scripts/` | Live testnet scripts, numbered; each header says what it does |
@@ -65,6 +65,7 @@ All of this was tested with two nodes run by one person. That fully exercises th
 | `scripts/41` | Governed `BurnTreasury` (8) |
 | `scripts/42` | Launch: 100M issued once, vesting and transfer from the treasury (12) |
 | `scripts/43` | Tokenomics allocation in one governed decision (23) |
+| `scripts/44` | Allocation V2 on the YAP instance: net settlement through the settlement factory, guards, committed allocations (23, no human steps) |
 | `sdk-test/yap-flows.mjs` | Wallet SDK against the public registry (`npm install --ignore-scripts` first) |
 
 Scripts 40 to 43 have human steps on the VPSes; each prints the exact commands.
@@ -76,4 +77,5 @@ Scripts 40 to 43 have human steps on the VPSes; each prints the exact commands.
 - "Vesting is enforced on-ledger" holds against beneficiaries and operators. The governor can still archive a holding (`RescueHolding`), so for third parties the guarantee is as strong as the independence of the governor's owners.
 - A governed BurnMint only works on holdings the governor owns.
 - An externally signed transaction cannot also need an internal party's signature.
-- Allocation `settleBefore` is recorded, not enforced: the sender can always withdraw.
+- Allocation `settleBefore` (V1) is recorded, not enforced: the sender can always withdraw.
+- Allocation V2: the executors are trusted for atomicity across instruments (as the standard assumes), and settling a single allocation alone burns its authorizer's net outflow; use the settlement factory. No venue has been tested against it yet.

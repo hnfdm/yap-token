@@ -1486,6 +1486,19 @@ testV2DirectSettleNeedsAdminAndExecutors = do
   submitMustFail w.carol (settleV2 a [w.carol])                  -- the admin is missing
   submitMustFail w.alice (settleV2 a [w.alice])                  -- not the executor
   submitMustFail w.admin (settleV2 a [w.admin])                  -- the executor is missing
+  -- even with the admin and the executor together, iterated settlement is refused (both the extra legs and the next-iteration funding)
+  submitMustFail (actAs [w.admin, w.carol]) do
+    exerciseCmd a A2.Allocation_Settle with
+      actors = [w.admin, w.carol]
+      extraTransferLegSides = [legSide "L2" A2.SenderSide w.bob 1.0]
+      nextIterationFunding = None
+      extraArgs = noExtra
+  submitMustFail (actAs [w.admin, w.carol]) do
+    exerciseCmd a A2.Allocation_Settle with
+      actors = [w.admin, w.carol]
+      extraTransferLegSides = []
+      nextIterationFunding = Some TextMap.empty
+      extraArgs = noExtra
 
 testV2NonCommittedWithdraw : Script ()
 testV2NonCommittedWithdraw = do

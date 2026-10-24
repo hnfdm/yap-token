@@ -1427,9 +1427,14 @@ testV2NetSettlement = do
   expectBalance (balance w w.bob) 50.0 "bob locked nothing"
   expectBalance (supplyAll w) 150.0 "locked funds are still supply"
   -- views show what wallets need
+  -- alice sees BOTH allocations (she is the counterparty of bob's); hers is the one with a backing holding
   views <- queryInterface @A2.Allocation w.alice
-  assertMsg "alice sees her allocation with one backing holding and the deadline" (case views of
-    [(_, Some v)] -> length v.holdingCids == 1 && v.expiresAt == deadline && v.numIterations == 0 && Map.member A2.AA_Withdraw v.availableActions
+  assertMsg "alice sees both allocations" (length views == 2)
+  assertMsg "alice's allocation shows one backing holding, the deadline and the available actions" (case [ v | (c, Some v) <- views, c == aliceAlloc ] of
+    [v] -> length v.holdingCids == 1 && v.expiresAt == deadline && v.numIterations == 0 && Map.member A2.AA_Withdraw v.availableActions
+    _ -> False)
+  assertMsg "bob's allocation has no backing holding (nothing to lock)" (case [ v | (c, Some v) <- views, c == bobAlloc ] of
+    [v] -> null v.holdingCids
     _ -> False)
   -- only the executor (with the factory disclosed) settles
   submitMustFail (actAs w.alice <> disclose sfD) (settleBatchCmd sf si legs [fin aliceAlloc, fin bobAlloc] [w.alice])

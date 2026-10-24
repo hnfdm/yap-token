@@ -43,5 +43,33 @@ print(json.dumps({"party_id":sys.argv[1],"rules_contract_id":sys.argv[2],"action
 PY
 )
     api POST /governance/execute "$BODY" | cut -c1-600 ;;
-  *) echo "usage: $0 propose [text] | list | confirm | execute"; exit 1 ;;
+  confirm-all|execute-all)
+    # all open proposals at once (the launch script creates several). confirm-all skips proposals this node already confirmed.
+    ME=$(api GET "/party-config/$DEC" | head -1 | python3 -c 'import sys,json;print(json.load(sys.stdin).get("member_party_id",""))')
+    RULES=$(rules)
+    api GET "/governance/confirmations?party_id=$DEC" | head -1 | python3 -c 'import sys,json
+for a in json.load(sys.stdin).get("domain_actions",[]): print(json.dumps(a))' | while read -r A; do
+      LBL=$(pj "$A" action_label); DESC=$(python3 -c 'import sys,json;print(json.loads(sys.argv[1]).get("description","")[:150])' "$A")
+      if [ "$1" = confirm-all ]; then
+        if echo "$A" | grep -q "\"confirming_party\": \"$ME\""; then echo "skip (already confirmed): $LBL"; continue; fi
+        echo "CONFIRM $LBL :: $DESC"
+        BODY=$(python3 - "$DEC" "$RULES" "$(pj "$A" proposal_cid)" <<'PY'
+import json,sys
+print(json.dumps({"party_id":sys.argv[1],"rules_contract_id":sys.argv[2],"action":{"type":"governance_set_threshold","new_threshold":0},"governance_type":"core_domain","proposal_cid":sys.argv[3]}))
+PY
+)
+        api POST /governance/confirm "$BODY" | cut -c1-200
+      else
+        if ! echo "$A" | grep -q '"can_execute": true'; then echo "skip (not enough confirmations yet): $LBL"; continue; fi
+        echo "EXECUTE $LBL :: $DESC"
+        BODY=$(python3 - "$DEC" "$RULES" "$A" <<'PY'
+import json,sys
+a=json.loads(sys.argv[3])
+print(json.dumps({"party_id":sys.argv[1],"rules_contract_id":sys.argv[2],"action":{"type":"governance_set_threshold","new_threshold":0},"confirmation_cids":a.get("executable_confirmation_cids",[]),"disclosed_contracts":[],"governance_type":"core_domain","proposal_cid":a["proposal_cid"]}))
+PY
+)
+        api POST /governance/execute "$BODY" | cut -c1-200
+      fi
+    done ;;
+  *) echo "usage: $0 propose [text] | list | confirm [label] | execute [label] | confirm-all | execute-all"; exit 1 ;;
 esac

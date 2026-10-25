@@ -6,7 +6,7 @@ All testing is on **Canton testnet** (Splice 0.9.0, Canton 3.6.1). Nothing has r
 
 | Package | Tests | Covers |
 |---|---|---|
-| `yap-token-test` | 71 | Transfers (offer, direct, self, V1 and V2, wrong actors), allocations V1 and V2 (net settlement, committed, batch guards) and delegated settlement, locks and expiry, linear vesting (cliff, linearity, revoke, close, funded from the treasury), BurnMint, operator allowance and expiry, field and precision guards |
+| `yap-token-test` | 73 | Transfers (offer, direct, self, V1 and V2, wrong actors), allocations V1 and V2 (net settlement, committed, batch guards) and delegated settlement, locks and expiry, linear vesting (cliff, linearity, revoke, close, funded from the treasury), BurnMint, operator allowance and expiry, field and precision guards |
 | `yap-governance-test` | 11 | Every governed action: appoint / set / revoke operator, revoke vesting, governor mint, rescue, burn treasury, vesting and transfer from the treasury, the atomic allocation (guards, threading of change, vesting behaviour) |
 
 **Mutation testing** (`daml/yap-token-test/mutations.py`) breaks one rule at a time and checks that some test fails. Latest full run (0.9.0 sources, 136 mutations): 114 killed, 22 survived. 21 survivors are behaviour-neutral double guards (for example a check that the contract's own `ensure`, its signatories or a second check one layer down already enforce). 1 was a real gap (direct settlement with iteration fields) that now has a test; the run has not been repeated since. Earlier runs found and closed gaps in the V2 direct-transfer rule and in operator minting. The governance package has no mutation run.
@@ -17,7 +17,7 @@ Each script prints its checks; most end by proving that the supply is back where
 
 | Area | Scripts | Result |
 |---|---|---|
-| Transfer rules, authorization, disclosure, preapprovals, 6-decimal limit, edge cases | `6`, `7`, `10`, `13`, `17` | pass |
+| Transfer rules, authorization, disclosure, preapprovals, 6-decimal limit, edge cases | `6`, `7`, `10`, `13`, `17` | pass (see the note below the table) |
 | Allocations and settlement across participants and across three nodes, delegated settlement, cross-node races | `12`, `21`, `22`, `24`, `25`, `27`, `28`, `30` | pass |
 | Invariants under load, contention, preapproval cap | `14`, `15`, `16` | pass |
 | Registry: resilience, fuzzing (70 cases), TLS, stale-factory window | `18`, `19`, `26`, `28` | pass |
@@ -33,6 +33,8 @@ Each script prints its checks; most end by proving that the supply is back where
 | **Tokenomics allocation** in one governed decision: nine pools, TGE share, vesting, team cannot claim before its cliff | `43` | 23 / 23 |
 | **Allocation V2** on the YAP instance: net settlement (alice pays 10, bob pays 3, net 7), mismatched legs and other settlements refused, direct settle refused, committed allocations, withdrawal; supply unchanged | `44` | 23 / 23 |
 
+Note: scripts `6` to `39` were written for a single-owner admin and last run on the deployment before the rename (`cusdt-token` 0.7.0). They reference the `yap-token` package now and have **not been re-run** against a `yap-token` deployment. Scripts `40` to `44` and the SDK test ran on the current YAP instance.
+
 ## 3. Wallet SDK and registry
 
 - Official `@canton-network/wallet-sdk` against the public YAP registry: discovery, offer, accept, reject, withdraw, UTXO merge (`sdk-test/yap-flows.mjs`, 5 / 5).
@@ -45,6 +47,7 @@ Gaps in the tests, found by mutation testing (the contract was right, but nothin
 
 - On the V2 direct-transfer path, the rule "the sender must be an actor" had no test. Without it, someone else's holding could be spent. Three tests were added.
 - Operator mint: the 6-decimal limit was untested inside the allowance. A test was added.
+- Allocation V2 and the settlement factory: reviewing the new mutations showed no test for a batch settled after its deadline or for an allocation of another admin, and the run itself found that direct settlement with iteration fields was untested. Three tests were added.
 
 Real defects and incidents:
 

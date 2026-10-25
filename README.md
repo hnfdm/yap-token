@@ -12,6 +12,7 @@ Daml contracts, an off-ledger registry API and operations tooling for **$YAP** (
 | Supply | **100,000,000 YAP**, issued once (three governed mints) into the governor's treasury. Never changes afterwards (checked by `scripts/42`, `43`) |
 | Allocation | One governed decision paid the treasury to nine pool parties as in the tokenomics v1.3: TGE 6,250,000 free, the rest on-ledger vesting. The treasury pool is 13.5M (not 15M) because 1.5M of test tokens left it earlier |
 | Vesting | Continuous (per second, not monthly); 1 month = 30 days; starts after the cliff; no grant is revocable |
+| Allocation V2 | Live: net settlement of two-way legs through the settlement factory, committed allocations, withdrawal and cancel (`scripts/44`). Not yet tested against any DEX or wallet |
 | Registry | `https://yap-registry-testnet.yapperagent.xyz`. The official Wallet SDK discovers YAP and runs offer, accept, reject, withdraw and merge (`sdk-test/yap-flows.mjs`) |
 
 The supply cap is enforced by **governance, not by the contract**: the governor can still mint, but only if both nodes agree, and it is visible on the ledger.
@@ -21,7 +22,7 @@ The supply cap is enforced by **governance, not by the contract**: the governor 
 - **Token (`yap-token`)**: UTXO holdings with V1 + V2 views; transfers (offer, direct with a preapproval, self); allocations V1 and V2 (multi-leg, net amount, committed, batch settlement through `YapSettlementFactory`) and cross-participant settlement; BurnMint; locks; linear vesting (minted, or paid from the treasury so the supply is unchanged).
 - **Operator**: a day-to-day party holding a `YapOperatorAuthority` (a shrinking mint allowance with an expiry). It cannot archive holdings, revoke vestings or raise its own limits. Mints are consuming, so parallel mints on one authority collide: re-read and retry, or appoint several authorities.
 - **Governed actions (`yap-governance`)**: a member creates a proposal, both nodes confirm, the governor executes it: `AppointOperator`, `SetOperatorAllowance`, `RevokeOperator`, `RevokeVesting`, `GovernorMint`, `RescueHolding`, `BurnTreasury`, `GrantVestingFromTreasury`, `TreasuryTransfer`, `AllocationProposal` (many releases and vestings in one atomic decision). A proposal names its target contract, so a stale id fails harmlessly.
-- **Registry (`registry/`)**: zero-dependency Node >= 18 HTTP service for wallet discovery (V2 routes only with `CUSDT_ENABLE_V2=1`).
+- **Registry (`registry/`)**: zero-dependency Node >= 18 HTTP service for wallet discovery. V2 transfer routes are advertised with `CUSDT_ENABLE_V2=1`, the Allocation V2 routes with `CUSDT_ENABLE_ALLOCATION_V2=1`. After a package upgrade it uses the **newest** factory contract.
 
 Not implemented: iterated allocation settlement (`nextIterationFunding` is refused with a clear message); the application mechanics of the tokenomics (staking plans, fee buyback and burn, Jobs escrow, the USDC pool).
 
@@ -29,9 +30,9 @@ Not implemented: iterated allocation settlement (`nextIterationFunding` is refus
 
 | Path | What |
 |---|---|
-| `daml/yap-token`, `daml/yap-token-test` | Token package, unit tests (71), `mutations.py` (106 mutations; survivors are equivalent guards) |
+| `daml/yap-token`, `daml/yap-token-test` | Token package, unit tests (73), `mutations.py` (136 mutations; 114 killed, 21 of the 22 survivors are equivalent double guards) |
 | `daml/yap-governance`, `daml/yap-governance-test` | Governed actions, unit tests (11) |
-| `registry/` | Registry server (`test/local.mjs` runs it against a mock ledger) |
+| `registry/` | Registry server (`test/local.mjs`: 40 checks against a mock ledger) |
 | `scripts/` | Live testnet scripts, numbered; each header says what it does |
 | `sdk-test/` | Official Wallet SDK flows |
 | `deploy/` | `node deploy/generate.mjs` writes paste-able VPS scripts to `deploy/out/` from `templates/` |
@@ -40,7 +41,7 @@ Not implemented: iterated allocation settlement (`nextIterationFunding` is refus
 
 ## Build, test, deploy
 
-No local Daml SDK needed. On a fresh VPS run `build-test-fresh-vps.sh` (builds `yap-token`, runs its tests), then `build-test-governance-on-vps.sh`; `mutation-test-on-vps.sh` is the long mutation run. A package that is already uploaded needs a **version bump** to change. Check the sha256 of every DAR you move.
+No local Daml SDK needed. On a fresh VPS run `build-test-fresh-vps.sh` (builds `yap-token`, runs its tests), then `build-test-governance-on-vps.sh`; `mutation-test-on-vps.sh` is the long mutation run. A package that is already uploaded needs a **version bump** to change, and existing singleton contracts keep running the old code: after an upgrade create the new ones (`decman-cusdt-on-vps.sh contracts-v2` for the Allocation V2 factories) and re-run the registry install. Check the sha256 of every DAR you move.
 
 Config is `.env.testnet` (git-ignored, see `.env.testnet.example`). Single-owner admin: `scripts/1-upload-dar.mjs`, `2-setup.mjs`, `11-create-allocation-factory.mjs`. Registry: `install-registry-on-vps.sh`, or `install-registry-yap-on-vps.sh` for a second service on port 8788 (optional own HTTPS name; the DNS record must be DNS-only, not proxied).
 
@@ -48,7 +49,7 @@ Two things that bite: a Splice bundle upgrade **resets ledger auth to open**, so
 
 ## Decentralized governor (DecMan)
 
-Scripts `deploy/templates/decman-*.sh.in`, in order: `discover` (read-only), `install` (pinned image, UI on localhost, Noise port limited to the peer), `api` (reuse the validator's Keycloak client, then everything is `curl`), `peers`, onboarding, `party-creds`, `dars` + `governance` (GovernanceRules, threshold 2), `cusdt` (distribute DARs, create the singleton contracts), `vote`, `harden` (systemd firewall rule, encrypted backup).
+Scripts `deploy/templates/decman-*.sh.in`, in order: `discover` (read-only), `install` (pinned image, UI on localhost, Noise port limited to the peer), `api` (reuse the validator's Keycloak client, then everything is `curl`), `peers`, onboarding, `party-creds`, `dars` + `governance` (GovernanceRules, threshold 2), `cusdt` (distribute DARs, create the singleton contracts; `contracts-v2` after an upgrade), `vote`, `harden` (systemd firewall rule, encrypted backup).
 
 - Wait for the DAR run to be `completed` and accepted by the peer **before** the contracts run, or it fails with "package not vetted by all hosting participants". Stuck runs: `POST /workflows/<run>/cancel`; failed ones: `/dismiss`.
 - Several proposals can be open: always pass the action label. DecMan shows only the description, so **read the content** with `node scripts/show-allocation-proposal.mjs` before confirming. Confirmations expire after 30 minutes.
@@ -60,7 +61,7 @@ All of this was tested with two nodes run by one person. That fully exercises th
 
 | Script | Covers |
 |---|---|
-| `scripts/6` to `39` | Single-owner admin: transfer rules, allocations, soak, races, fuzz, BurnMint + V2, locks + vesting, operator. Run against a single-owner `yap-token` deployment, not the governed one |
+| `scripts/6` to `39` | Single-owner admin: transfer rules, allocations, soak, races, fuzz, BurnMint + V2, locks + vesting, operator. They need a single-owner `yap-token` deployment, not the governed one, and were last run on the pre-rename deployment (`cusdt-token` 0.7.0); they have not been re-run since the rename |
 | `scripts/40` | Governed operator appointment and revocation, mint, registry transfer (13 checks) |
 | `scripts/41` | Governed `BurnTreasury` (8) |
 | `scripts/42` | Launch: 100M issued once, vesting and transfer from the treasury (12) |

@@ -11,7 +11,7 @@ import { amt, IF } from "./ops.mjs";
 import { node, sleep } from "./nodes.mjs";
 
 const OPS = Number(process.argv[2] ?? 60), SEED = Number(process.argv[3] ?? (Date.now() % 1e9)), BUDGET = Number(process.env.BUDGET ?? 300_000);
-const OURS = loadEnv(".env.testnet"), MZF = loadEnv(".env.mzf"), CL = loadEnv(".env.cl");
+const OURS = loadEnv(".env.testnet"), MZF = loadEnv(process.env.CUSDT_MZF_ENV || ".env.mzf"), CL = loadEnv(".env.cl");
 if ([OURS, MZF, CL].some((e) => e.INSECURE_TLS === "1")) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${sfx}`), CAROL = MZF.CUSDT_MZF_CAROL, DAVE = CL.CUSDT_CL_DAVE;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";

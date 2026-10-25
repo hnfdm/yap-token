@@ -7,7 +7,7 @@ import { T, snapshot, supply, checkInvariants, retry, retrySend } from "./invari
 import { makeOps, amt, IF } from "./ops.mjs";
 import { node } from "./nodes.mjs";
 
-const OURS = loadEnv(".env.testnet"), MZF = loadEnv(".env.mzf");
+const OURS = loadEnv(".env.testnet"), MZF = loadEnv(process.env.CUSDT_MZF_ENV || ".env.mzf");
 if (OURS.INSECURE_TLS === "1" || MZF.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, suffix = admin.split("::")[1];
 const ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${suffix}`), CAROL = MZF.CUSDT_MZF_CAROL;

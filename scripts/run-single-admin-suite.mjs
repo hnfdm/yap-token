@@ -18,13 +18,16 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const only = args.includes("--only") ? args[args.indexOf("--only") + 1].split(",") : null;
 const heavy = args.includes("--heavy");
+const twoNode = args.includes("--two-node");
 const logDir = join(root, ".sa-logs"); mkdirSync(logDir, { recursive: true });
 
 const DEFAULT = ["4-e2e-test", "6-negative-tests", "7-disclosure-tests", "10-preapproval-tests", "12-allocation-tests", "13-precision-tests",
   "14-invariant-soak", "15-contention-tests", "17-edge-cases", "18-registry-resilience", "26-registry-fuzz", "28-stale-factory-window",
   "29-pending-spam", "31-ws-active-contracts", "35-live-burnmint-v2", "36-live-lock-vesting", "37-live-operator", "38-live-operator-registry", "39-live-operator-contention"];
 const HEAVY = ["16-preapproval-cap-test", "32-ws-beats-the-cap", "33-pending-spam-205"];
-const list = (only ?? [...DEFAULT, ...(heavy ? HEAVY : [])]).map((x) => [...DEFAULT, ...HEAVY].find((f) => f === x || f.startsWith(x + "-")) ?? x);
+// need a SECOND participant: its settings go into .env.t2 (git-ignored, see deploy/templates/print-env-block-on-vps.sh.in)
+const TWO = ["21-cross-participant", "22-delegated-settlement", "24-cross-node-race"];
+const list = (only ?? (twoNode ? TWO : [...DEFAULT, ...(heavy ? HEAVY : [])])).map((x) => [...DEFAULT, ...HEAVY, ...TWO].find((f) => f === x || f.startsWith(x + "-")) ?? x);
 
 // scripts that take arguments
 const ARGS = { "4-e2e-test": (e) => [e.CUSDT_ALICE, e.CUSDT_BOB, "1"] };
@@ -94,6 +97,22 @@ if (!env.CUSDT_ALICE?.startsWith("yap-sa-")) {
 }
 console.log("admin of this suite:", env.CUSDT_ADMIN_PARTY, "| alice:", env.CUSDT_ALICE.split("::")[0], "| bob:", env.CUSDT_BOB.split("::")[0]);
 
+// ---------- second node (only for 21, 22, 24) ----------
+const needsSecond = list.some((f) => TWO.includes(f));
+const T2 = ".env.t2";
+const t2Extra = {};
+if (needsSecond) {
+  if (!existsSync(join(root, T2))) throw new Error(`${T2} is missing: run deploy/out/print-env-block-on-vps.sh on the second node and paste its block into ${T2}`);
+  const t2Env = () => Object.fromEntries(read(T2).map((l) => l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/)).filter(Boolean).map((m) => [m[1], m[2]]));
+  if (!t2Env().CUSDT_MZF_CAROL) {
+    console.log("== setup: receiver party yap-sa-carol on the second node ==");
+    const x = await run("20-mzf-setup", [], { CUSDT_ENV_FILE: T2, CUSDT_SETUP_HINT: "yap-sa-carol", CUSDT_SETUP_KEY: "CUSDT_MZF_CAROL" });
+    console.log(clean(x.out).trim().split("\n").slice(-3).join("\n"));
+    if (x.code !== 0) throw new Error("20-mzf-setup failed on the second node");
+  }
+  t2Extra.CUSDT_MZF_ENV = T2;
+}
+
 // ---------- local registry for that admin ----------
 const RPORT = 18787;
 const reg = spawn(process.execPath, [join(root, "registry", "src", "server.mjs")], { cwd: root, stdio: ["ignore", "ignore", "inherit"],
@@ -109,7 +128,7 @@ try {
     for (const [pf, pa] of PRE[f] ?? []) { const x = await run(pf, pa(env)); if (x.code !== 0) throw new Error(`${pf} failed:
 ${clean(x.out)}`); }
     process.stdout.write(`running ${f.padEnd(34)} `);
-    const r = await run(f, ARGS[f] ? ARGS[f](env) : [], { CUSDT_REGISTRY_URL: regUrl });
+    const r = await run(f, ARGS[f] ? ARGS[f](env) : [], { CUSDT_REGISTRY_URL: regUrl, ...(TWO.includes(f) ? t2Extra : {}) });
     const text = clean(r.out);
     writeFileSync(join(logDir, f + ".log"), text);
     const m = [...text.matchAll(/(\d+)\s+passed,\s+(\d+)\s+failed/g)].pop();

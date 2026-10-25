@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Prints a ready-to-paste env block (for D:\Code\yap-token\.env.t2) that lets the test scripts on the PC use THIS validator's ledger API
+# from outside, the same way .env.testnet does for t1. It only READS the validator container's environment; it changes nothing.
+# The block contains the validator's Keycloak client secret: paste it into the git-ignored file on your PC, do not paste it into a chat.
+# Save as a file, then:  bash print-env-block-on-vps.sh <ledger-domain> <auth-domain>
+#   t2:  bash print-env-block-on-vps.sh ledger-testnet2.mahawallet.xyz auth-testnet2.mahawallet.xyz
+set -euo pipefail
+LEDGER_DOMAIN=${1:?usage: $0 <ledger domain> <auth domain>}; AUTH_DOMAIN=${2:?usage: $0 <ledger domain> <auth domain>}
+VAL=splice-validator-validator-1
+VENV=$(docker inspect "$VAL" --format '{{range .Config.Env}}{{println .}}{{end}}')
+get() { printf '%s\n' "$VENV" | sed -n "s/^$1=//p" | head -1; }
+CID=$(get SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_CLIENT_ID); CSEC=$(get SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_CLIENT_SECRET); USR=$(get SPLICE_APP_VALIDATOR_LEDGER_API_AUTH_USER_NAME)
+[ -n "$CID" ] && [ -n "$CSEC" ] && [ -n "$USR" ] || { echo "could not read the client id / secret / user from $VAL"; exit 1; }
+cat <<BLOCK
+----- copy everything between the lines into D:\Code\yap-token\.env.t2 -----
+LEDGER_URL=https://$LEDGER_DOMAIN
+KC_TOKEN_URL=https://$AUTH_DOMAIN/realms/canton/protocol/openid-connect/token
+KC_CLIENT_ID=$CID
+KC_CLIENT_SECRET=$CSEC
+KC_SCOPE=daml_ledger_api
+LEDGER_USER_ID=$USR
+INSECURE_TLS=1
+----- end -----
+BLOCK
+echo "(the secret is in the block above: keep it out of chats and out of git)" >&2

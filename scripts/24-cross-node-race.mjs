@@ -8,7 +8,7 @@ import { makeOps, amt, IF } from "./ops.mjs";
 import { node, waitFor, sleep } from "./nodes.mjs";
 
 const ROUNDS = Number(process.argv[2] ?? 3);
-const OURS = loadEnv(".env.testnet"), MZF = loadEnv(".env.mzf");
+const OURS = loadEnv(".env.testnet"), MZF = loadEnv(process.env.CUSDT_MZF_ENV || ".env.mzf");
 if (OURS.INSECURE_TLS === "1" || MZF.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${sfx}`), CAROL = MZF.CUSDT_MZF_CAROL;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";

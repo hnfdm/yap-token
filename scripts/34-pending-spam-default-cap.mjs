@@ -12,7 +12,7 @@ const N = Number(process.argv[2] ?? 205), BUDGET = Number(process.env.BUDGET ?? 
 const OURS = loadEnv(".env.testnet"), CL = loadEnv(".env.cl");
 if (OURS.INSECURE_TLS === "1" || CL.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const ours = node(OURS, "ours"), cl = node(CL, "cl");
-const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, DAVE = CL.CUSDT_CL_DAVE;
+const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${sfx}`), DAVE = CL.CUSDT_CL_DAVE;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const HOLD = "#yap-token:YapToken:YapHolding";
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");

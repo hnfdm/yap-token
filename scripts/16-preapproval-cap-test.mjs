@@ -8,7 +8,7 @@ import { T } from "./invariants.mjs";
 
 const admin = need("CUSDT_ADMIN_PARTY");
 const suffix = admin.split("::")[1];
-const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
+const ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${suffix}`), BOB = (process.env.CUSDT_BOB || `cusdt-bob::${suffix}`);
 const registry = process.env.CUSDT_REGISTRY_URL || "http://localhost:8787";
 const token = await getToken();
 const iso = (ms) => new Date(Date.now() + ms).toISOString();

@@ -6,7 +6,7 @@ import { env, need } from "./lib.mjs";
 const BASE = "https://lighthouse.testnet.cantonloop.com/api";
 const KEY = env.LIGHTHOUSE_API_KEY;
 const admin = need("CUSDT_ADMIN_PARTY"), suffix = admin.split("::")[1];
-const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
+const ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${suffix}`), BOB = (process.env.CUSDT_BOB || `cusdt-bob::${suffix}`);
 const VAL = `asc-val-1::${suffix}`;
 const MZF_VAL = "mzf-validator-1::1220501bc43d60c4293f8ff9c9d114a1e7e0b96dfb9f0c366ed27193737b45b05a56";
 const CAROL = env.CUSDT_MZF_CAROL ?? `cusdt-mzf-carol::${MZF_VAL.split("::")[1]}`;

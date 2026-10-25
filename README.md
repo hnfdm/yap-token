@@ -32,7 +32,7 @@ Not implemented: iterated allocation settlement (`nextIterationFunding` is refus
 |---|---|
 | `daml/yap-token`, `daml/yap-token-test` | Token package, unit tests (73), `mutations.py` (136 mutations; 114 killed, 21 of the 22 survivors are equivalent double guards) |
 | `daml/yap-governance`, `daml/yap-governance-test` | Governed actions, unit tests (11) |
-| `registry/` | Registry server (`test/local.mjs`: 40 checks against a mock ledger) |
+| `registry/` | Registry server (`test/local.mjs`: 42 checks against a mock ledger) |
 | `scripts/` | Live testnet scripts, numbered; each header says what it does |
 | `sdk-test/` | Official Wallet SDK flows |
 | `deploy/` | `node deploy/generate.mjs` writes paste-able VPS scripts to `deploy/out/` from `templates/` |
@@ -61,7 +61,7 @@ All of this was tested with two nodes run by one person. That fully exercises th
 
 | Script | Covers |
 |---|---|
-| `scripts/6` to `39` | Single-owner admin: transfer rules, allocations, soak, races, fuzz, BurnMint + V2, locks + vesting, operator. They need a single-owner `yap-token` deployment, not the governed one, and were last run on the pre-rename deployment (`cusdt-token` 0.7.0); they have not been re-run since the rename |
+| `scripts/6` to `39` | Single-owner admin: transfer rules, allocations, soak, races, fuzz, BurnMint + V2, locks + vesting, operator. They need a single-owner `yap-token` deployment, not the governed one. `node scripts/run-single-admin-suite.mjs` sets one up (separate admin and parties, local registry) and runs the 19 scripts that work on one node: **all passed** on 25 Oct 2026. The 200-contract scripts (16, 32, 33) and the multi-node ones (21 to 25, 27, 30, 34) were not re-run |
 | `scripts/40` | Governed operator appointment and revocation, mint, registry transfer (13 checks) |
 | `scripts/41` | Governed `BurnTreasury` (8) |
 | `scripts/42` | Launch: 100M issued once, vesting and transfer from the treasury (12) |

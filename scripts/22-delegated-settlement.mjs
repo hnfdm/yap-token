@@ -10,7 +10,7 @@ import { node, waitFor } from "./nodes.mjs";
 const OURS = loadEnv(".env.testnet"), MZF = loadEnv(".env.mzf");
 if (OURS.INSECURE_TLS === "1" || MZF.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const admin = OURS.CUSDT_ADMIN_PARTY, suffix = admin.split("::")[1];
-const ALICE = `cusdt-alice::${suffix}`, CAROL = MZF.CUSDT_MZF_CAROL;
+const ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${suffix}`), CAROL = MZF.CUSDT_MZF_CAROL;
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const PKG = "#yap-token";
 const PROPOSAL = `${PKG}:YapToken:YapSettlementProposal`, AUTH = `${PKG}:YapToken:YapSettlementAuthority`;

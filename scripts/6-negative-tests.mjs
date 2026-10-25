@@ -5,7 +5,7 @@ import { getToken, acs, submit, need, env, PKG } from "./lib.mjs";
 
 const admin = need("CUSDT_ADMIN_PARTY");
 const suffix = admin.split("::")[1];
-const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
+const ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${suffix}`), BOB = (process.env.CUSDT_BOB || `cusdt-bob::${suffix}`);
 const registry = process.env.CUSDT_REGISTRY_URL || "http://localhost:8787";
 const token = await getToken();
 const HOLDING = `${PKG}:YapToken:YapHolding`;
@@ -15,7 +15,8 @@ const IFACE_TI = "#splice-api-token-transfer-instruction-v1:Splice.Api.Token.Tra
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const holdings = async (p) => (await acs(token, p, HOLDING)).filter((c) => c.createArgument.owner === p);
-const total = (hs) => hs.reduce((s, h) => s + Number(h.createArgument.amount), 0);
+// integer micro-units: summing decimals as floats gives 995.4023739999998 vs 995.402374 depending on the order, and the checks compare with ===
+const total = (hs) => hs.reduce((s, h) => s + Math.round(Number(h.createArgument.amount) * 1e6), 0) / 1e6;
 const pendingFor = async (receiver, sender) =>
   (await acs(token, receiver, INSTR)).filter((c) => c.createArgument.transfer.sender === sender);
 

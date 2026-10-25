@@ -6,7 +6,7 @@ import { makeOps, amt } from "./ops.mjs";
 
 const admin = need("CUSDT_ADMIN_PARTY");
 const suffix = admin.split("::")[1];
-const ALICE = `cusdt-alice::${suffix}`, BOB = `cusdt-bob::${suffix}`;
+const ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${suffix}`), BOB = (process.env.CUSDT_BOB || `cusdt-bob::${suffix}`);
 const GHOST = `ghost-nobody::1220${"a".repeat(64)}`;
 const token = await getToken();
 const { transfer, allocate, ti, al, tpl } = makeOps({ token, admin, registry: process.env.CUSDT_REGISTRY_URL || "http://localhost:8787" });

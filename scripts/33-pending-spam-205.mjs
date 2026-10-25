@@ -11,7 +11,7 @@ import { wsActiveContracts } from "./31-ws-active-contracts.mjs";
 
 const N = Number(process.argv[2] ?? 205), BUDGET = Number(process.env.BUDGET ?? 700_000);
 const E = loadEnv(".env.testnet"); if (E.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-const n = node(E, "ours"), admin = E.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, BOB0 = `cusdt-bob::${sfx}`;
+const n = node(E, "ours"), admin = E.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${sfx}`), BOB0 = (process.env.CUSDT_BOB || `cusdt-bob::${sfx}`);
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const HOLD = "#yap-token:YapToken:YapHolding", PRE = "#yap-token:YapToken:YapTransferPreapproval";
 const short = (e) => String(e?.message ?? e).replace(/\s+/g, " ");

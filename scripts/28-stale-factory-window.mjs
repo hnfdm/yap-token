@@ -9,7 +9,7 @@ import { node, sleep } from "./nodes.mjs";
 
 const OURS = loadEnv(".env.testnet");
 if (OURS.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`;
+const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${sfx}`);
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const TFT = "#yap-token:YapToken:YapTransferFactory", HOLD = "#yap-token:YapToken:YapHolding";
 const ours = node(OURS, "ours");

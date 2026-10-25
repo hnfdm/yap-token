@@ -286,10 +286,19 @@ if (!LEDGER_URL || !ADMIN || !KC_URL || !KC_CLIENT || !KC_SECRET) {
   process.exit(1);
 }
 
-createServer((req, res) => {
+const server = createServer((req, res) => {
   route(req, res).catch((e) => {
     const status = e instanceof HttpError ? e.status : 500;
     if (status === 500) console.error("[cusdt-registry]", e);
     send(res, status, { error: e instanceof Error ? e.message : String(e) });
   });
-}).listen(PORT, HOST, () => console.log(`[cusdt-registry] listening on ${HOST}:${PORT}, admin=${ADMIN.slice(0, 30)}...`));
+});
+// A request Node cannot even parse (oversized request line or headers, malformed HTTP): refuse it with a JSON 4xx like every other
+// refusal, instead of Node's bare default. Does not depend on a reverse proxy in front.
+server.on("clientError", (err, socket) => {
+  if (!socket.writable) return;
+  const status = err.code === "HPE_HEADER_OVERFLOW" ? 431 : 400;
+  const msg = JSON.stringify({ error: status === 431 ? "request header fields too large" : "bad request" });
+  socket.end(`HTTP/1.1 ${status} ${status === 431 ? "Request Header Fields Too Large" : "Bad Request"}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(msg)}\r\nConnection: close\r\n\r\n${msg}`);
+});
+server.listen(PORT, HOST, () => console.log(`[cusdt-registry] listening on ${HOST}:${PORT}, admin=${ADMIN.slice(0, 30)}...`));

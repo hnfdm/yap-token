@@ -89,6 +89,11 @@ try {
   }
   r = await call("POST", "/registry/allocations/v2/cid1/choice-contexts/settle", {}); ok("unknown allocation V2 choice -> 404", r.status === 404);
   r = await call("GET", "/registry/metadata/v1/info"); ok("allocation V2 advertised when CUSDT_ENABLE_ALLOCATION_V2=1", r.j.supportedApis["splice-api-token-allocation-v2"] === 1 && r.j.supportedApis["splice-api-token-allocation-instruction-v2"] === 1);
+  // a request line Node cannot parse (oversized) is refused with a JSON 431, without any proxy in front
+  { const big = await fetch(`http://127.0.0.1:${RPORT}/registry/metadata/v1/info?` + "a=b&".repeat(8000)).catch(() => null);
+    const j = big ? await big.json().catch(() => null) : null;
+    ok("oversized request line -> JSON 431", big?.status === 431 && typeof j?.error === "string", `${big?.status}`); }
+  r = await call("GET", "/registry/metadata/v1/info"); ok("the registry still answers after the oversized request", r.status === 200);
 } finally { child.kill(); mock.close(); }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

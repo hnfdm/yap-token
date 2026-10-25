@@ -5,7 +5,7 @@ import { loadEnv } from "./lib.mjs";
 
 const OURS = loadEnv(".env.testnet");
 if (OURS.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, BOB = `cusdt-bob::${sfx}`;
+const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${sfx}`), BOB = (process.env.CUSDT_BOB || `cusdt-bob::${sfx}`);
 const R = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const TF = "/registry/transfer-instruction/v1/transfer-factory", AF = "/registry/allocation-instruction/v1/allocation-factory";
 const inst = { admin, id: "YAP" };

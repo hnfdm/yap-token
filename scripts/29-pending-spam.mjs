@@ -11,7 +11,7 @@ import { node } from "./nodes.mjs";
 const N = Number(process.argv[2] ?? 50), BUDGET = Number(process.env.BUDGET ?? 280_000);
 const OURS = loadEnv(".env.testnet");
 if (OURS.INSECURE_TLS === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = `cusdt-alice::${sfx}`, BOB = `cusdt-bob::${sfx}`;
+const admin = OURS.CUSDT_ADMIN_PARTY, sfx = admin.split("::")[1], ALICE = (process.env.CUSDT_ALICE || `cusdt-alice::${sfx}`), BOB = (process.env.CUSDT_BOB || `cusdt-bob::${sfx}`);
 const REGISTRY = process.env.CUSDT_REGISTRY_URL || "https://registry-testnet.cryptolampung.space";
 const PKG = "#yap-token", HOLD = `${PKG}:YapToken:YapHolding`, INSTR = `${PKG}:YapToken:YapTransferInstruction`, PRE = `${PKG}:YapToken:YapTransferPreapproval`;
 const ours = node(OURS, "ours");

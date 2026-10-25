@@ -70,6 +70,21 @@ Not re-run, and why:
 
 The heavy scripts used most of t1's remaining validator traffic (about 90% of the allowance was in use afterwards; the validator tops it up automatically).
 
+### Mixed Splice versions and node failure (25 Oct 2026)
+
+After t2 was upgraded to Splice 0.9.3 (Canton 3.6.3) while t1 stayed on 0.9.0 (Canton 3.6.1), the governed instance was tested across the two versions:
+
+| Test | Result |
+|---|---|
+| Governed transfer (offer + accept) confirmed by both participants | pass |
+| DecMan vote: propose on t1, confirm on t2, execute on t1 | pass |
+| `44` Allocation V2 on the governed instance | 23 / 23 |
+| `21`, `22`, `24` cross-participant transfers, delegated settlement, race between nodes | 19 / 19, 16 / 16, 13 / 13 |
+| `45` vesting claim by a pool on the governed instance (airdrop and staking pools) | 4 / 4 each; supply stays 100,000,000 |
+| SDK flows through the public registry | 5 / 5 |
+
+Node failure (`46`): with t2 stopped, a governed transaction does **not** complete (t1 answers 503 after 20 s) and nothing is applied; after t2 is started again the same transaction succeeds at once. The 2-of-2 setup therefore has no availability margin: if either node is down, all YAP activity stops until it returns. Fault tolerance needs more hosting nodes than the threshold (for example 2-of-3).
+
 ## 3. Wallet SDK and registry
 
 - Official `@canton-network/wallet-sdk` against the public YAP registry: discovery, offer, accept, reject, withdraw, UTXO merge (`sdk-test/yap-flows.mjs`, 5 / 5).
@@ -102,5 +117,6 @@ Real defects and incidents:
 - Two **independent** operators: all governor tests used two nodes run by one person. That exercises the mechanism fully, but not the security property.
 - Joining an existing decentralized party (add member), removing a member, changing the threshold.
 - A wallet or venue that speaks Token Standard V2 end to end; Allocation V2 was tested on our own ledger only, not against any DEX or wallet.
+- An operator transaction while one node is down (expected to stop as well, not checked), and a 2-of-3 setup.
 - Three-way cross-participant scenarios (`25`, `27`, `30`, `34`): only two validators were available.
 - Staking, fee buyback and burn, and Jobs escrow from the tokenomics: not part of this repository.

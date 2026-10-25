@@ -67,6 +67,8 @@ All of this was tested with two nodes run by one person. That fully exercises th
 | `scripts/42` | Launch: 100M issued once, vesting and transfer from the treasury (12) |
 | `scripts/43` | Tokenomics allocation in one governed decision (23) |
 | `scripts/44` | Allocation V2 on the YAP instance: net settlement through the settlement factory, guards, committed allocations (23, no human steps) |
+| `scripts/45` | Vesting claim by a pool on the governed instance (no human steps) |
+| `scripts/46` | Node-failure probe: a governed transaction while t2 is stopped (needs the operator to stop and start t2) |
 | `sdk-test/yap-flows.mjs` | Wallet SDK against the public registry (`npm install --ignore-scripts` first) |
 
 Scripts 40 to 43 have human steps on the VPSes; each prints the exact commands.

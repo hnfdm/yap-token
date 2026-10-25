@@ -35,7 +35,7 @@ Each script prints its checks; most end by proving that the supply is back where
 
 ### Re-run of scripts 4 to 39 on a fresh single-owner `yap-token` deployment (25 Oct 2026)
 
-`node scripts/run-single-admin-suite.mjs` creates a separate admin (`yap-sa-admin`) with clean test parties on t1, a local registry for it, and runs the scripts one by one (the governed YAP instance is untouched). **19 of 19 scripts pass:**
+`node scripts/run-single-admin-suite.mjs` creates a separate admin (`yap-sa-admin`) with clean test parties on t1, a local registry for it, and runs the scripts one by one (the governed YAP instance is untouched). **19 of 19 scripts pass** (`--heavy` adds 16, 32, 33; `--two-node` adds 21, 22, 24 against a second validator whose settings are in `.env.t2`):
 
 | Script | Result | Script | Result |
 |---|---|---|---|
@@ -50,11 +50,25 @@ Each script prints its checks; most end by proving that the supply is back where
 | `17` edge cases | 27 / 27 | `39` operator contention | 4 / 4 |
 | `18` registry resilience | 26 / 26 | | |
 
+The scripts that create 200+ contracts (`--heavy`) and the two-node scripts (`--two-node`, alice on t1, carol on a **different participant**, t2) were run afterwards:
+
+| Script | Result |
+|---|---|
+| `32` websocket stream beats the 200-element cap | 6 / 6 |
+| `33` 205 pending offers to one receiver | 9 / 9 |
+| `16` preapproval cap (200 / 201 preapprovals) | 4 / 6, explained below |
+| `21` cross-participant transfers and allocations | 19 / 19 |
+| `22` delegated settlement across two nodes | 16 / 16 |
+| `24` race between two nodes on one allocation | 13 / 13 |
+
+Script `16` asserted the behaviour of the default list limit (200 elements: the raw ACS is refused and the registry falls back to an offer). On t1 that limit was raised, so with 201 preapprovals the raw ACS returned all 201 and the registry **still found the receiver's preapproval** (`direct`): the two assertions that "failed" described the old limit, not a defect. The script now detects which configuration it runs on and asserts the matching behaviour; that change has not been re-run, because it costs about 0.3 MB of traffic.
+
 Not re-run, and why:
 
-- `16`, `32`, `33` (200+ contracts each): they would use most of the remaining t1 traffic (about 0.66 of 1.41 MB were left), which the YAP instance and DecMan also need. Their earlier results (the 200-element limit and the websocket answer) are documented in the README.
-- `21`, `22`, `24`, `25`, `27`, `30`, `34`: they need a second or third node (the MZF node was down and no credentials for another node are available). The cross-participant settlement path is covered by the unit tests and by the governed tests, but these scripts have not been re-run since the rename.
+- `25`, `27`, `30`, `34`: they need **three** different participants, and only two validators are available (the MZF node is down). The two-node versions above cover cross-participant transfers, delegated settlement and the cross-node race.
 - `19`, `23` (read-only diagnostics), `5`, `8`, `9`, `20` (setup tools).
+
+The heavy scripts used most of t1's remaining validator traffic (about 90% of the allowance was in use afterwards; the validator tops it up automatically).
 
 ## 3. Wallet SDK and registry
 
@@ -88,4 +102,5 @@ Real defects and incidents:
 - Two **independent** operators: all governor tests used two nodes run by one person. That exercises the mechanism fully, but not the security property.
 - Joining an existing decentralized party (add member), removing a member, changing the threshold.
 - A wallet or venue that speaks Token Standard V2 end to end; Allocation V2 was tested on our own ledger only, not against any DEX or wallet.
+- Three-way cross-participant scenarios (`25`, `27`, `30`, `34`): only two validators were available.
 - Staking, fee buyback and burn, and Jobs escrow from the tokenomics: not part of this repository.

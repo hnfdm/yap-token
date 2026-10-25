@@ -66,8 +66,17 @@ try {
   console.log(`  raw admin ACS with 201 preapprovals -> ${c201}`);
   p = await probe();
   ok("at 201: registry does NOT error (no 500)", p.status === 200, `${p.status} ${p.kind}`);
-  ok("at 201: it degrades to offer (bob's preapproval is not found)", p.kind === "offer", `kind=${p.kind}`);
-  ok("the admin ACS really is capped at 201", typeof c201 === "string" && /MAXIMUM_LIST_ELEMENTS|413|too many|limit/i.test(c201), String(c201).slice(0, 110));
+  // Two configurations exist: the DEFAULT list limit (200: the raw ACS is refused and the registry falls back to an offer) and a RAISED
+  // limit (ADDITIONAL_CONFIG_LIST_LIMIT, as on t1: the raw ACS returns all 201 and the registry still finds the preapproval).
+  const capped = typeof c201 === "string";
+  console.log(`  this node has ${capped ? "the DEFAULT 200-element list limit" : "a RAISED list limit"}`);
+  if (capped) {
+    ok("at 201 (default limit): it degrades to offer (bob's preapproval is not found)", p.kind === "offer", `kind=${p.kind}`);
+    ok("the admin ACS really is capped at 201", /MAXIMUM_LIST_ELEMENTS|413|too many|limit/i.test(c201), String(c201).slice(0, 110));
+  } else {
+    ok("at 201 (raised limit): the registry still finds bob's preapproval", p.kind === "direct", `kind=${p.kind}`);
+    ok("the raw admin ACS returns all 201 contracts", c201 === 201, `count ${c201}`);
+  }
 } finally {
   if (bobPre) { /* we created bob's preapproval only for the baseline; leave state as found */ junk.push(bobPre); }
   if (junk.length) { await archive(junk); }

@@ -81,6 +81,7 @@ After t2 was upgraded to Splice 0.9.3 (Canton 3.6.3) while t1 stayed on 0.9.0 (C
 | `44` Allocation V2 on the governed instance | 23 / 23 |
 | `21`, `22`, `24` cross-participant transfers, delegated settlement, race between nodes | 19 / 19, 16 / 16, 13 / 13 |
 | `45` vesting claim by a pool on the governed instance (airdrop and staking pools) | 4 / 4 each; supply stays 100,000,000 |
+| `49` voluntary locks on the governed instance (lock with a holder, early release, pure time lock, expiry tidy-up, refusals) | 11 / 11; supply stays 100,000,000 |
 | SDK flows through the public registry | 5 / 5 |
 
 Node failure (`46`): with t2 stopped, a governed transaction does **not** complete (t1 answers 503 after 20 s) and nothing is applied; after t2 is started again the same transaction succeeds at once. The **operator** is no exception (`47`: an operator command is also answered with 503 while t2 is down, and nothing is applied): the operator authority is signed by the admin, so the admin's 2-of-2 confirmation is still required. The 2-of-2 setup therefore has no availability margin: if either node is down, all YAP activity stops until it returns. Fault tolerance needs more hosting nodes than the threshold (for example 2-of-3).
@@ -117,6 +118,7 @@ Real defects and incidents:
 - Two **independent** operators: all governor tests used two nodes run by one person. That exercises the mechanism fully, but not the security property.
 - Joining an existing decentralized party (add member), removing a member, changing the threshold.
 - A wallet or venue that speaks Token Standard V2 end to end; Allocation V2 was tested on our own ledger only, not against any DEX or wallet.
+- `YapBurnMintFactory` on the governed instance: the admin controls it, and the 2-of-2 admin cannot be driven from one PC without a governance wrapper (only `BurnTreasury` exists). It is covered by `35` (single-owner admin, 28 / 28) and the governed burn by `41`.
 - A 2-of-3 setup (the only way to keep working with one node down).
 - Three-way cross-participant scenarios (`25`, `27`, `30`, `34`): only two validators were available.
 - Staking, fee buyback and burn, and Jobs escrow from the tokenomics: not part of this repository.

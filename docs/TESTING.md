@@ -82,6 +82,7 @@ After t2 was upgraded to Splice 0.9.3 (Canton 3.6.3) while t1 stayed on 0.9.0 (C
 | `21`, `22`, `24` cross-participant transfers, delegated settlement, race between nodes | 19 / 19, 16 / 16, 13 / 13 |
 | `45` vesting claim by a pool on the governed instance (airdrop and staking pools) | 4 / 4 each; supply stays 100,000,000 |
 | `49` voluntary locks on the governed instance (lock with a holder, early release, pure time lock, expiry tidy-up, refusals) | 11 / 11; supply stays 100,000,000 |
+| `50` venue marker in transfer metadata (`maha/venue`, `yap/venue`, a reason key): V1 and V2 offers through the public registry | 7 / 7; the marker is on the pending instruction and in the submitted transaction |
 | SDK flows through the public registry | 5 / 5 |
 
 Node failure (`46`): with t2 stopped, a governed transaction does **not** complete (t1 answers 503 after 20 s) and nothing is applied; after t2 is started again the same transaction succeeds at once. The **operator** is no exception (`47`: an operator command is also answered with 503 while t2 is down, and nothing is applied): the operator authority is signed by the admin, so the admin's 2-of-2 confirmation is still required. The 2-of-2 setup therefore has no availability margin: if either node is down, all YAP activity stops until it returns. Fault tolerance needs more hosting nodes than the threshold (for example 2-of-3).

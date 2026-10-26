@@ -15,6 +15,8 @@ Daml contracts, an off-ledger registry API and operations tooling for **$YAP** (
 | Allocation V2 | Live: net settlement of two-way legs through the settlement factory, committed allocations, withdrawal and cancel (`scripts/44`). Not yet tested against any DEX or wallet |
 | Registry | `https://yap-registry-testnet.yapperagent.xyz`. The official Wallet SDK discovers YAP and runs offer, accept, reject, withdraw and merge (`sdk-test/yap-flows.mjs`) |
 
+| Venue marker | Wallets and venues can tag transfers through the standard `meta.values` of the transfer (for example `maha/venue = maha`, as CBTC does). The contract does not inspect `meta`: it is kept on the pending instruction and in the submitted transaction, for V1 and V2 (`scripts/50`). Keys follow the CIP-0056 rule: a prefix naming the organisation that defines the key. Nothing in YAP reads the markers yet |
+
 The supply cap is enforced by **governance, not by the contract**: the governor can still mint, but only if both nodes agree, and it is visible on the ledger.
 
 ## How it works
@@ -69,6 +71,7 @@ All of this was tested with two nodes run by one person. That fully exercises th
 | `scripts/44` | Allocation V2 on the YAP instance: net settlement through the settlement factory, guards, committed allocations (23, no human steps) |
 | `scripts/45` | Vesting claim by a pool on the governed instance (no human steps) |
 | `scripts/46`, `47` | Node-failure probes: a governed transaction / an operator command while t2 is stopped (the person running them stops and starts t2). `48` appoints a short-lived operator for `47` |
+| `scripts/50` | Venue marker in the transfer metadata survives V1 and V2 offers on the governed instance (7, no human steps) |
 | `scripts/49` | Voluntary locks on the governed instance: holder release, pure time lock, expiry (11, no human steps) |
 | `sdk-test/yap-flows.mjs` | Wallet SDK against the public registry (`npm install --ignore-scripts` first) |
 

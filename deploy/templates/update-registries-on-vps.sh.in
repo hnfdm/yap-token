@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Updates the server code of BOTH registries on the t1 VPS (cusdt-registry :8787 and yap-registry :8788), keeps a backup of each old
+# server.mjs, does NOT touch their env files, restarts each service and checks it. No ledger traffic.
+# Save as a file, then:  bash update-registries-on-vps.sh
+# Roll back one:  cp /opt/<dir>/server.mjs.bak-<timestamp> /opt/<dir>/server.mjs && systemctl restart <service>
+set -uo pipefail
+TS=$(date +%Y%m%d-%H%M%S)
+NEW=/tmp/registry-server-$TS.mjs
+cat > $NEW <<'EOF_JS'
+@@EMBED registry/src/server.mjs@@
+EOF_JS
+node --check $NEW || { echo "syntax check failed, nothing changed"; exit 1; }
+upd() {  # upd <service> <dir> <port>
+  local S=$1 D=$2 P=$3
+  [ -d "$D" ] || { echo "== $S: $D not found on this host, skipped"; return; }
+  echo "== $S"
+  cp $D/server.mjs $D/server.mjs.bak-$TS && echo "   backup: $D/server.mjs.bak-$TS"
+  cp $NEW $D/server.mjs
+  systemctl restart $S; sleep 3
+  echo "   service: $(systemctl is-active $S)"
+  echo "   health:  $(curl -s localhost:$P/health)"
+  echo "   oversized request line -> $(curl -s -o /dev/null -w 'HTTP %{http_code}' "localhost:$P/$(head -c 20000 /dev/zero | tr '\0' a)") (431 with a JSON body is the fixed behaviour)"
+  echo "   still serving after it: $(curl -s -o /dev/null -w 'HTTP %{http_code}' localhost:$P/health)"
+}
+upd cusdt-registry /opt/cusdt-registry 8787
+upd yap-registry /opt/yap-registry 8788
+rm -f $NEW
+echo "== advertised APIs (yap-registry)"
+curl -s localhost:8788/registry/metadata/v1/info | tr ',' '\n' | grep -E "token-(allocation|holding|transfer-instruction)-v2" | sed 's/^/   /'

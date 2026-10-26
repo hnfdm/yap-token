@@ -61,7 +61,7 @@ All of this was tested with two nodes run by one person. That fully exercises th
 
 | Script | Covers |
 |---|---|
-| `scripts/6` to `39` | Single-owner admin: transfer rules, allocations, soak, races, fuzz, BurnMint + V2, locks + vesting, operator. They need a single-owner `yap-token` deployment, not the governed one. `node scripts/run-single-admin-suite.mjs` sets one up (separate admin and parties, local registry) and runs the 19 scripts that work on one node, plus (`--heavy`) the 200-contract ones and (`--two-node`, second validator in `.env.t2`) 21, 22 and 24: **all passed** on 25 Oct 2026, except two assertions of script 16 that describe the default 200-element list limit (t1 has a raised one). Only the three-participant scripts (25, 27, 30, 34) were not re-run |
+| `scripts/6` to `39` | Single-owner admin: transfer rules, allocations, soak, races, fuzz, BurnMint + V2, locks + vesting, operator. They need a single-owner `yap-token` deployment, not the governed one. `node scripts/run-single-admin-suite.mjs` sets one up (separate admin and parties, local registry) and runs the 19 scripts that work on one node, plus (`--heavy`) the 200-contract ones and (`--two-node`, second validator in `.env.t2`) 21, 22 and 24: **all passed** on 25 Oct 2026 (script 16 after a fix for the raised list limit on t1, re-run 26 Oct: 6 / 6). Only the three-participant scripts (25, 27, 30, 34) were not re-run |
 | `scripts/40` | Governed operator appointment and revocation, mint, registry transfer (13 checks) |
 | `scripts/41` | Governed `BurnTreasury` (8) |
 | `scripts/42` | Launch: 100M issued once, vesting and transfer from the treasury (12) |

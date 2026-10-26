@@ -56,12 +56,12 @@ The scripts that create 200+ contracts (`--heavy`) and the two-node scripts (`--
 |---|---|
 | `32` websocket stream beats the 200-element cap | 6 / 6 |
 | `33` 205 pending offers to one receiver | 9 / 9 |
-| `16` preapproval cap (200 / 201 preapprovals) | 4 / 6, explained below |
+| `16` preapproval cap (200 / 201 preapprovals) | 4 / 6 first, **6 / 6** after the fix (explained below) |
 | `21` cross-participant transfers and allocations | 19 / 19 |
 | `22` delegated settlement across two nodes | 16 / 16 |
 | `24` race between two nodes on one allocation | 13 / 13 |
 
-Script `16` asserted the behaviour of the default list limit (200 elements: the raw ACS is refused and the registry falls back to an offer). On t1 that limit was raised, so with 201 preapprovals the raw ACS returned all 201 and the registry **still found the receiver's preapproval** (`direct`): the two assertions that "failed" described the old limit, not a defect. The script now detects which configuration it runs on and asserts the matching behaviour; that change has not been re-run, because it costs about 0.3 MB of traffic.
+Script `16` asserted the behaviour of the default list limit (200 elements: the raw ACS is refused and the registry falls back to an offer). On t1 that limit was raised, so with 201 preapprovals the raw ACS returned all 201 and the registry **still found the receiver's preapproval** (`direct`): the two assertions that "failed" described the old limit, not a defect. The script now detects which configuration it runs on and asserts the matching behaviour; re-run on 26 Oct 2026 it passes 6 / 6.
 
 Not re-run, and why:
 

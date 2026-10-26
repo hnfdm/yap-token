@@ -30,7 +30,7 @@ Not implemented: iterated allocation settlement (`nextIterationFunding` is refus
 
 | Path | What |
 |---|---|
-| `daml/yap-token`, `daml/yap-token-test` | Token package, unit tests (73), `mutations.py` (136 mutations; 114 killed, 21 of the 22 survivors are equivalent double guards) |
+| `daml/yap-token`, `daml/yap-token-test` | Token package, unit tests (73), `mutations.py` (136 mutations; 115 killed, the 21 survivors are equivalent double guards) |
 | `daml/yap-governance`, `daml/yap-governance-test` | Governed actions, unit tests (11) |
 | `registry/` | Registry server (`test/local.mjs`: 42 checks against a mock ledger) |
 | `scripts/` | Live testnet scripts, numbered; each header says what it does |

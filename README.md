@@ -68,11 +68,11 @@ All of this was tested with two nodes run by one person. That fully exercises th
 | `scripts/43` | Tokenomics allocation in one governed decision (23) |
 | `scripts/44` | Allocation V2 on the YAP instance: net settlement through the settlement factory, guards, committed allocations (23, no human steps) |
 | `scripts/45` | Vesting claim by a pool on the governed instance (no human steps) |
-| `scripts/49` | Voluntary locks on the governed instance: holder release, pure time lock, expiry (11, no human steps) |
 | `scripts/46`, `47` | Node-failure probes: a governed transaction / an operator command while t2 is stopped (the person running them stops and starts t2). `48` appoints a short-lived operator for `47` |
+| `scripts/49` | Voluntary locks on the governed instance: holder release, pure time lock, expiry (11, no human steps) |
 | `sdk-test/yap-flows.mjs` | Wallet SDK against the public registry (`npm install --ignore-scripts` first) |
 
-Scripts 40 to 43 have human steps on the VPSes; each prints the exact commands.
+Scripts 40 to 43 and 48 have human steps on the VPSes (46 and 47 need t2 stopped and started); each prints the exact commands.
 
 ## Known limits
 
